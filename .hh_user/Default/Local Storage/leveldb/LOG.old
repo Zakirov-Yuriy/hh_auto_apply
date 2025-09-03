@@ -1,0 +1,15 @@
+2025/09/03-15:45:30.435 4244 Reusing MANIFEST C:\Users\zakco\PycharmProjects\hh_auto_apply\.hh_user\Default\Local Storage\leveldb/MANIFEST-000001
+2025/09/03-15:45:30.471 4244 Recovering log #14
+2025/09/03-15:45:30.476 4244 Reusing old log C:\Users\zakco\PycharmProjects\hh_auto_apply\.hh_user\Default\Local Storage\leveldb/000014.log 
+2025/09/03-15:45:42.726 350c Level-0 table #18: started
+2025/09/03-15:45:42.733 350c Level-0 table #18: 18677 bytes OK
+2025/09/03-15:45:42.737 350c Delete type=0 #14
+2025/09/03-15:45:42.738 350c Compacting 4@0 + 1@1 files
+2025/09/03-15:45:42.751 350c Generated table #19@0: 262 keys, 352317 bytes
+2025/09/03-15:45:42.751 350c Compacted 4@0 + 1@1 files => 352317 bytes
+2025/09/03-15:45:42.753 350c compacted to: files[ 0 1 1 0 0 0 0 ]
+2025/09/03-15:45:42.755 350c Delete type=2 #8
+2025/09/03-15:45:42.755 350c Delete type=2 #11
+2025/09/03-15:45:42.755 350c Delete type=2 #13
+2025/09/03-15:45:42.755 350c Delete type=2 #15
+2025/09/03-15:45:42.756 350c Delete type=2 #18
