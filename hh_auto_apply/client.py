@@ -362,7 +362,18 @@ class HHClient:
                     apply_btn.click()
                 except Exception:
                     pass
-                page.wait_for_timeout(1000)
+                page.wait_for_timeout(1500)
+
+                # --- Обработка модального окна "вакансия в другой стране" ---
+                foreign_modal_button = page.locator(Selectors.FOREIGN_COUNTRY_MODAL_BUTTON)
+                if self.is_visible(foreign_modal_button, timeout=2000):
+                    logger.info("Обнаружено модальное окно о вакансии в другой стране. Подтверждаю.")
+                    try:
+                        foreign_modal_button.click()
+                        page.wait_for_timeout(1500)
+                    except Exception as e:
+                        logger.warning(f"Не удалось нажать кнопку в модальном окне: {e}")
+                # --- Конец обработки модального окна ---
 
             ok = self.add_cover_letter_and_submit(page, cover_text)
             page.close()

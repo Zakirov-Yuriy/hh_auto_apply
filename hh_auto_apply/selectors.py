@@ -46,3 +46,6 @@ class Selectors:
     SUBMIT_BUTTON_TEXT_1 = 'button:has-text("Отправить отклик")'
     SUBMIT_BUTTON_TEXT_2 = 'button:has-text("Отправить")'
     SUBMIT_BUTTON_GENERIC_QA = 'button[data-qa*="submit"]'
+
+    # --- Modals ---
+    FOREIGN_COUNTRY_MODAL_BUTTON = 'button:has-text("Все равно откликнуться")'
