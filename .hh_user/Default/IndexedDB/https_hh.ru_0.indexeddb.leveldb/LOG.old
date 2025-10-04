@@ -1,4 +1,0 @@
-2025/09/03-16:21:39.626 4b08 Reusing MANIFEST C:\Users\zakco\PycharmProjects\hh_auto_apply\.hh_user\Default\IndexedDB\https_hh.ru_0.indexeddb.leveldb/MANIFEST-000001
-2025/09/03-16:21:39.627 4b08 Recovering log #310
-2025/09/03-16:21:39.628 4b08 Reusing old log C:\Users\zakco\PycharmProjects\hh_auto_apply\.hh_user\Default\IndexedDB\https_hh.ru_0.indexeddb.leveldb/000310.log 
-2025/09/03-16:21:40.302 1eb4 Manual compaction at level-0 from '\x00z\x00\x00\x00' @ 72057594037927935 : 1 .. '\x00{\x00\x00\x00' @ 0 : 0; will stop at (end)
