@@ -1,3 +1,4 @@
 python-dotenv
 loguru
 playwright
+requests

@@ -7,6 +7,8 @@ from urllib.parse import urlencode
 
 from loguru import logger
 from playwright.sync_api import BrowserContext, Page, TimeoutError as PWTimeoutError
+import requests
+import json
 
 from hh_auto_apply.config import Config
 from hh_auto_apply.domain import ApplyResult
@@ -103,6 +105,75 @@ class HHClient:
                     links.add(href.split("?")[0])
 
         return list(links)
+
+    def _get_vacancy_description(self, page: Page) -> str:
+        description_selectors = [
+            'div[data-qa="vacancy-description"]',
+            'div[data-qa="job-description"]',
+            'div[class*="vacancy-description"]',
+            'div[class*="job-description"]',
+            'div[data-qa="description-text"]',
+            'div[class*="description-text"]',
+            'div[data-qa="vacancy-content"]',
+            'div[class*="vacancy-content"]',
+        ]
+        for sel in description_selectors:
+            try:
+                desc_element = page.locator(sel)
+                if desc_element.count() > 0 and self.is_visible(desc_element, timeout=500):
+                    text = desc_element.inner_text()
+                    if text and len(text.strip()) > 50:  # Ensure it's a substantial description
+                        return text.strip()
+            except Exception:
+                continue
+        logger.warning("Не удалось найти описание вакансии.")
+        return ""
+
+    def _generate_cover_letter(self, job_description: str, api_key: str) -> str:
+        url = "https://openrouter.ai/api/v1/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+            # Optional: Site URL for rankings on openrouter.ai.
+            "HTTP-Referer": "https://hh.ru",  # Assuming the bot operates on hh.ru
+            # Optional: Site title for rankings on openrouter.ai.
+            "X-Title": "HH Auto Apply Bot",
+        }
+        
+        try:
+            prompt_template = self.cfg.ai_prompt_path.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            logger.error(f"Файл с промптом не найден: {self.cfg.ai_prompt_path}")
+            return ""
+        
+        final_prompt = prompt_template.format(job_description=job_description)
+
+        data = {
+            "model": self.cfg.ai_model,
+            "messages": [
+                {"role": "user", "content": final_prompt}
+            ],
+            "max_tokens": 300,  # Limit the length of the cover letter
+            "temperature": 0.7, # Adjust creativity
+        }
+
+        try:
+            response = requests.post(url, headers=headers, data=json.dumps(data), timeout=60)
+            response.raise_for_status()  # Raise an exception for bad status codes
+            result = response.json()
+            raw_letter = result["choices"][0]["message"]["content"].strip()
+
+            # Убираем технические токены, которые могут добавлять некоторые модели
+            clean_letter = raw_letter.replace("<s>", "").replace("</s>", "").replace("[INST]", "").replace("[/INST]", "").strip()
+
+            logger.info("Сопроводительное письмо сгенерировано.")
+            return clean_letter
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Ошибка при генерации сопроводительного письма: {e}")
+            return ""
+        except (KeyError, IndexError) as e:
+            logger.error(f"Ошибка парсинга ответа от API: {e}")
+            return ""
 
     def get_apply_button(self, page: Page):
         candidates = [
@@ -266,7 +337,7 @@ class HHClient:
             if self.cfg.fail_if_resume_not_found:
                 self.make_shot(page, "resume_not_found")
                 logger.warning("Отклик не отправляем: нужное резюме не найдено (FAIL_IF_RESUME_NOT_FOUND=true).")
-                return False
+                # Do not return here, just log and continue to the next vacancy
             else:
                 self.select_any_resume_if_needed(page)
 
@@ -299,19 +370,33 @@ class HHClient:
                     btn.scroll_into_view_if_needed()
                 except Exception:
                     pass
-                human_pause(self.cfg)
+                human_pause(self.cfg) # Initial pause before click
                 try:
-                    btn.click()
-                    page.wait_for_timeout(1500)
+                    btn.click(force=True)
+                    page.wait_for_timeout(1500) # Wait after click
                     if self.already_applied(page):
                         logger.success("Отклик отправлен ✅")
                         return True
-                    page.wait_for_timeout(1500)
+                    page.wait_for_timeout(1500) # Wait again
                     if self.already_applied(page):
                         logger.success("Отклик отправлен ✅")
                         return True
                 except Exception as e:
                     logger.warning(f"Клик по кнопке отправки не удался: {e}")
+                    # If click failed, try to dismiss potential overlays or retry click
+                    human_pause(self.cfg, 2, 4) # Longer pause to allow overlays to disappear
+                    try:
+                        btn.click(force=True) # Retry click
+                        page.wait_for_timeout(1500)
+                        if self.already_applied(page):
+                            logger.success("Отклик отправлен ✅")
+                            return True
+                        page.wait_for_timeout(1500)
+                        if self.already_applied(page):
+                            logger.success("Отклик отправлен ✅")
+                            return True
+                    except Exception as e_retry:
+                        logger.warning(f"Повторный клик по кнопке отправки не удался: {e_retry}")
             else:
                 self.check_consents_if_needed(page)
                 human_pause(self.cfg, 1, 2)
@@ -321,10 +406,11 @@ class HHClient:
 
     def apply_to_vacancy(self, context: BrowserContext, url: str, cover_text: str) -> tuple[ApplyResult, str]:
         logger.info(f"Открываю вакансию: {url}")
-        page = context.new_page()
-        page.on("console", lambda msg: logger.debug(f"[browser] {msg.type} {msg.text}"))
-        title = ""
+        page = None # Initialize page to None
         try:
+            page = context.new_page()
+            page.on("console", lambda msg: logger.debug(f"[browser] {msg.type} {msg.text}"))
+            title = ""
             page.set_default_timeout(30000)
             page.goto(url, wait_until="domcontentloaded", timeout=30000)
             human_pause(self.cfg)
@@ -353,10 +439,22 @@ class HHClient:
 
             if self.already_applied(page):
                 logger.info("Отклик уже был отправлен — пропускаю.")
-                page.close()
+                # page.close() # Removed this line
                 return ApplyResult.SKIPPED_ALREADY_APPLIED, title
 
             apply_btn = self.get_apply_button(page)
+            generated_cover_letter = ""
+            if self.cfg.use_ai_cover_letter and self.cfg.openrouter_api_key:
+                logger.info("Генерация сопроводительного письма с помощью ИИ...")
+                job_description = self._get_vacancy_description(page)
+                if job_description:
+                    generated_cover_letter = self._generate_cover_letter(job_description, self.cfg.openrouter_api_key)
+                else:
+                    logger.warning("Не удалось получить описание вакансии для генерации письма.")
+
+            # Если ИИ не сгенерировал письмо или функция отключена, используем переданный cover_text
+            final_cover_text = generated_cover_letter if generated_cover_letter else cover_text
+
             if apply_btn:
                 try:
                     apply_btn.click()
@@ -373,10 +471,12 @@ class HHClient:
                         page.wait_for_timeout(1500)
                     except Exception as e:
                         logger.warning(f"Не удалось нажать кнопку в модальном окне: {e}")
-                # --- Конец обработки модального окна ---
+            # --- Конец обработки модального окна ---
 
-            ok = self.add_cover_letter_and_submit(page, cover_text)
-            page.close()
+            ok = self.add_cover_letter_and_submit(page, final_cover_text)
+            # Removed page.close() here, as it might be closing the context prematurely.
+            # The context should be managed by the caller (app.run).
+            # page.close()
             return (ApplyResult.SUCCESS, title) if ok else (ApplyResult.ERROR, title)
 
         except PWTimeoutError:
@@ -385,8 +485,24 @@ class HHClient:
                 self.make_shot(page, "vacancy_timeout")
             except Exception:
                 pass
+            # Removed page.close() here, as it might be closing the context prematurely.
+            # The context should be managed by the caller (app.run).
+            # try:
+            #     page.close()
+            # except Exception:
+            #     pass
+            return ApplyResult.ERROR, title
+        except TargetClosedError: # Catch TargetClosedError specifically
+            logger.error("Browser context was closed unexpectedly.")
             try:
-                page.close()
+                self.make_shot(page, "context_closed")
+            except Exception:
+                pass
+            return ApplyResult.ERROR, title
+        except TargetClosedError: # Catch TargetClosedError specifically
+            logger.error("Browser context was closed unexpectedly.")
+            try:
+                self.make_shot(page, "context_closed")
             except Exception:
                 pass
             return ApplyResult.ERROR, title
@@ -397,8 +513,15 @@ class HHClient:
                 self.make_shot(page, f"error_{slug}")
             except Exception:
                 pass
-            try:
-                page.close()
-            except Exception:
-                pass
+            # Removed page.close() here as well.
+            # try:
+            #     page.close()
+            # except Exception:
+            #     pass
             return ApplyResult.ERROR, title
+        finally:
+            if page: # Ensure page is not None before closing
+                try:
+                    page.close()
+                except Exception as e:
+                    logger.warning(f"Не удалось закрыть страницу: {e}")
