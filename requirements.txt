@@ -2,3 +2,4 @@ python-dotenv
 loguru
 playwright
 requests
+tenacity

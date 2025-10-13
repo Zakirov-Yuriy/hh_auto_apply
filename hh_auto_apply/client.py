@@ -7,6 +7,7 @@ from urllib.parse import urlencode
 
 from loguru import logger
 from playwright.sync_api import BrowserContext, Page, TimeoutError as PWTimeoutError
+from playwright._impl._errors import TargetClosedError
 import requests
 import json
 
@@ -116,6 +117,7 @@ class HHClient:
             'div[class*="description-text"]',
             'div[data-qa="vacancy-content"]',
             'div[class*="vacancy-content"]',
+            'div[class*="content"]',
         ]
         for sel in description_selectors:
             try:
@@ -129,27 +131,25 @@ class HHClient:
         logger.warning("Не удалось найти описание вакансии.")
         return ""
 
-    def _generate_cover_letter(self, job_description: str, api_key: str) -> str:
+    def _generate_cover_letter(self, job_description: str) -> str:
         url = "https://openrouter.ai/api/v1/chat/completions"
         headers = {
-            "Authorization": f"Bearer {api_key}",
+            "Authorization": f"Bearer {self.cfg.openrouter_api_key}",
             "Content-Type": "application/json",
-            # Optional: Site URL for rankings on openrouter.ai.
-            "HTTP-Referer": "https://hh.ru",  # Assuming the bot operates on hh.ru
-            # Optional: Site title for rankings on openrouter.ai.
+            "HTTP-Referer": "https://hh.ru",
             "X-Title": "HH Auto Apply Bot",
         }
-        
+
         try:
             prompt_template = self.cfg.ai_prompt_path.read_text(encoding="utf-8")
         except FileNotFoundError:
             logger.error(f"Файл с промптом не найден: {self.cfg.ai_prompt_path}")
             return ""
-        
+
         final_prompt = prompt_template.format(job_description=job_description)
 
         data = {
-            "model": self.cfg.ai_model,
+            "model": self.cfg.ai_model,  # Use the model from config
             "messages": [
                 {"role": "user", "content": final_prompt}
             ],
@@ -448,11 +448,10 @@ class HHClient:
                 logger.info("Генерация сопроводительного письма с помощью ИИ...")
                 job_description = self._get_vacancy_description(page)
                 if job_description:
-                    generated_cover_letter = self._generate_cover_letter(job_description, self.cfg.openrouter_api_key)
+                    generated_cover_letter = self._generate_cover_letter(job_description)
                 else:
                     logger.warning("Не удалось получить описание вакансии для генерации письма.")
 
-            # Если ИИ не сгенерировал письмо или функция отключена, используем переданный cover_text
             final_cover_text = generated_cover_letter if generated_cover_letter else cover_text
 
             if apply_btn:
@@ -481,13 +480,13 @@ class HHClient:
 
         except PWTimeoutError:
             logger.error("Таймаут при открытии вакансии.")
-            try:
-                self.make_shot(page, "vacancy_timeout")
-            except Exception:
-                pass
+            if page: # Check if page is not None before making a screenshot
+                try:
+                    self.make_shot(page, "vacancy_timeout")
+                except Exception:
+                    pass
             # Removed page.close() here, as it might be closing the context prematurely.
             # The context should be managed by the caller (app.run).
-            # try:
             #     page.close()
             # except Exception:
             #     pass
