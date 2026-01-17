@@ -69,82 +69,85 @@ class App:
         self._ensure_csv()
         start_time = time.time()
 
-        with sync_playwright() as p:
-            context = p.chromium.launch_persistent_context(
-                user_data_dir=self.cfg.persist_dir,
-                headless=self.cfg.headless,
-                args=["--start-maximized"],
-                viewport={"width": 1366, "height": 900},
-                slow_mo=self.cfg.slow_mo_ms,
-            )
-            page = context.new_page()
-            page.set_default_timeout(30000)
-            page.on("console", lambda msg: logger.debug(f"[browser] {msg.type} {msg.text}"))
+        try:
+            with sync_playwright() as p:
+                context = p.chromium.launch_persistent_context(
+                    user_data_dir=self.cfg.persist_dir,
+                    headless=self.cfg.headless,
+                    args=["--start-maximized"],
+                    viewport={"width": 1366, "height": 900},
+                    slow_mo=self.cfg.slow_mo_ms,
+                )
+                page = context.new_page()
+                page.set_default_timeout(30000)
+                page.on("console", lambda msg: logger.debug(f"[browser] {msg.type} {msg.text}"))
 
-            self.client.ensure_logged_in(page)
+                self.client.ensure_logged_in(page)
 
-            applies_done = 0
-            page_num = 0
-            empty_pages = 0
-
-            while not self._stop and applies_done < self.cfg.max_applies and page_num < self.cfg.max_pages:
-                search_url = self.client.build_search_url(page_num)
-                logger.info(f"Страница поиска: {search_url}")
-                page.goto(search_url, wait_until="domcontentloaded", timeout=45000)
-                human_pause(self.cfg)
-
-                links = self.client.list_vacancy_links_on_page(page)
-                if not links:
-                    empty_pages += 1
-                    if empty_pages >= self.cfg.empty_pages_tolerance:
-                        logger.info("Несколько пустых страниц подряд — завершаю.")
-                        break
-                    page_num += 1
-                    continue
-
+                applies_done = 0
+                page_num = 0
                 empty_pages = 0
-                logger.info(f"Найдено вакансий на странице: {len(links)}")
-                stats.bump("found_links", len(links))
 
-                for vurl in links:
-                    if self._stop:
-                        break
-                    if applies_done >= self.cfg.max_applies:
-                        break
-
-                    vac_id = extract_vacancy_id(vurl)
-                    if self.repo.is_seen(vac_id):
-                        stats.bump("skipped_seen")
-                        logger.info("Эта вакансия уже посещалась ранее — пропускаю.")
-                        continue
-
-                    stats.bump("opened")
-
-                    if self.dry_run:
-                        logger.info(f"[DRY-RUN] Отклик не отправляется. URL: {vurl}")
-                        result, title = ApplyResult.SUCCESS, "(dry-run)"
-                    else:
-                        result, title = self.client.apply_to_vacancy(context, vurl, cover_text)
-
-                    self.repo.mark_seen(vac_id)
-
-                    if result is ApplyResult.SUCCESS:
-                        applies_done += 1
-                        stats.bump("applies_done")
-                        try:
-                            self._append_vacancy_to_csv(title if title else vurl, vurl)
-                            logger.info(f"Сохранено в CSV: {title} — {vurl}")
-                        except Exception as e:
-                            logger.warning(f"Не удалось сохранить в CSV: {e}")
-                    elif result is ApplyResult.SKIPPED_ALREADY_APPLIED:
-                        stats.bump("skipped_already")
-                    else:
-                        stats.bump("errors")
-
+                while not self._stop and applies_done < self.cfg.max_applies and page_num < self.cfg.max_pages:
+                    search_url = self.client.build_search_url(page_num)
+                    logger.info(f"Страница поиска: {search_url}")
+                    page.goto(search_url, wait_until="domcontentloaded", timeout=45000)
                     human_pause(self.cfg)
 
-                page_num += 1
+                    links = self.client.list_vacancy_links_on_page(page)
+                    if not links:
+                        empty_pages += 1
+                        if empty_pages >= self.cfg.empty_pages_tolerance:
+                            logger.info("Несколько пустых страниц подряд — завершаю.")
+                            break
+                        page_num += 1
+                        continue
 
+                    empty_pages = 0
+                    logger.info(f"Найдено вакансий на странице: {len(links)}")
+                    stats.bump("found_links", len(links))
+
+                    for vurl in links:
+                        if self._stop:
+                            break
+                        if applies_done >= self.cfg.max_applies:
+                            break
+
+                        vac_id = extract_vacancy_id(vurl)
+                        if self.repo.is_seen(vac_id):
+                            stats.bump("skipped_seen")
+                            logger.info("Эта вакансия уже посещалась ранее — пропускаю.")
+                            continue
+
+                        stats.bump("opened")
+
+                        if self.dry_run:
+                            logger.info(f"[DRY-RUN] Отклик не отправляется. URL: {vurl}")
+                            result, title = ApplyResult.SUCCESS, "(dry-run)"
+                        else:
+                            result, title = self.client.apply_to_vacancy(context, vurl, cover_text)
+
+                        self.repo.mark_seen(vac_id)
+
+                        if result is ApplyResult.SUCCESS:
+                            applies_done += 1
+                            stats.bump("applies_done")
+                            try:
+                                self._append_vacancy_to_csv(title if title else vurl, vurl)
+                                logger.info(f"Сохранено в CSV: {title} — {vurl}")
+                            except Exception as e:
+                                logger.warning(f"Не удалось сохранить в CSV: {e}")
+                        elif result is ApplyResult.SKIPPED_ALREADY_APPLIED:
+                            stats.bump("skipped_already")
+                        else:
+                            stats.bump("errors")
+
+                        human_pause(self.cfg)
+
+                    page_num += 1
+        except Exception as e:
+            logger.error(f"Критическая ошибка: {e}")
+        finally:
             end_time = time.time()
             elapsed = end_time - start_time
             success_rate = (stats.applies_done / stats.opened * 100) if stats.opened > 0 else 0
@@ -160,6 +163,4 @@ class App:
             logger.info(f"Лимит откликов (MAX):        {self.cfg.max_applies}")
             logger.info(f"Время работы:                {elapsed:.2f} сек")
             logger.info("========== /ОТЧЁТ ==========")
-
-            context.close()
         return 0
