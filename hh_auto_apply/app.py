@@ -1,6 +1,7 @@
 import csv
 import signal
 import sys
+import time
 from pathlib import Path
 
 from loguru import logger
@@ -66,6 +67,7 @@ class App:
         stats = Stats()
         cover_text = self._read_cover_letter()
         self._ensure_csv()
+        start_time = time.time()
 
         with sync_playwright() as p:
             context = p.chromium.launch_persistent_context(
@@ -143,14 +145,20 @@ class App:
 
                 page_num += 1
 
+            end_time = time.time()
+            elapsed = end_time - start_time
+            success_rate = (stats.applies_done / stats.opened * 100) if stats.opened > 0 else 0
+
             logger.info("========== ОТЧЁТ ==========")
-            logger.info(f"Всего ссылок найдено:    {stats.found_links}")
-            logger.info(f"Пропущено (ранее были):  {stats.skipped_seen}")
-            logger.info(f"Пропущено (уже отклик):  {stats.skipped_already}")
-            logger.info(f"Открыто/обработано:      {stats.opened}")
-            logger.info(f"Успешных откликов:       {stats.applies_done}")
-            logger.info(f"Ошибок/неуспехов:        {stats.errors}")
-            logger.info(f"Лимит откликов (MAX):    {self.cfg.max_applies}")
+            logger.info(f"Всего ссылок найдено:        {stats.found_links}")
+            logger.info(f"Пропущено (ранее были):      {stats.skipped_seen}")
+            logger.info(f"Пропущено (уже отклик):      {stats.skipped_already}")
+            logger.info(f"Открыто/обработано:          {stats.opened}")
+            logger.info(f"Успешных откликов:           {stats.applies_done}")
+            logger.info(f"Ошибок/неуспехов:            {stats.errors}")
+            logger.info(f"Процент успешности:          {success_rate:.1f}%")
+            logger.info(f"Лимит откликов (MAX):        {self.cfg.max_applies}")
+            logger.info(f"Время работы:                {elapsed:.2f} сек")
             logger.info("========== /ОТЧЁТ ==========")
 
             context.close()
