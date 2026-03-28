@@ -3,3 +3,5 @@ loguru
 playwright
 requests
 tenacity
+PyQt6>=6.7.0
+pandas

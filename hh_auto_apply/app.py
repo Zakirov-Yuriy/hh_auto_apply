@@ -3,6 +3,7 @@ import signal
 import sys
 import time
 from pathlib import Path
+from typing import Callable, Optional
 
 from loguru import logger
 from playwright.sync_api import sync_playwright
@@ -15,12 +16,13 @@ from hh_auto_apply.utils import extract_vacancy_id, human_pause
 
 
 class App:
-    def __init__(self, cfg: Config, dry_run: bool = False):
+    def __init__(self, cfg: Config, dry_run: bool = False, on_log: Optional[Callable[[str], None]] = None):
         self.cfg = cfg
         self.dry_run = dry_run
         self.repo = SeenRepo(cfg.db_path)
         self.client = HHClient(cfg)
         self._stop = False
+        self.on_log = on_log  # Callback для логирования
 
     def _ensure_csv(self) -> None:
         p = Path(self.cfg.vacancies_csv)
@@ -61,8 +63,13 @@ class App:
         self.repo.cleanup(self.cfg.seen_ttl_days)
         Path(self.cfg.screenshots_dir).mkdir(parents=True, exist_ok=True)
 
-        signal.signal(signal.SIGINT, self.stop)
-        signal.signal(signal.SIGTERM, self.stop)
+        # Signal handlers работают только в главном потоке
+        try:
+            signal.signal(signal.SIGINT, self.stop)
+            signal.signal(signal.SIGTERM, self.stop)
+        except ValueError:
+            # Если находимся в worker потоке, игнорируем
+            logger.debug("Signal handlers не доступны в этом потоке")
 
         stats = Stats()
         cover_text = self._read_cover_letter()

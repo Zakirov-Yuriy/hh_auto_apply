@@ -1,1 +1,14 @@
-pytest
+# Development dependencies
+-r requirements.txt
+
+# For building executable
+pyinstaller==6.10.0
+
+# For testing
+pytest==8.0.0
+pytest-cov==4.1.0
+
+# For code quality
+black==24.1.0
+flake8==7.0.0
+mypy==1.8.0
