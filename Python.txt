@@ -11,9 +11,14 @@
 — высокий фокус на качестве кода благодаря опыту тестирования и автоматизации.
 
 Я быстро погружаюсь в существующую кодовую базу, умею брать ответственность за результат и доводить задачи до продакшена. Готов выполнить тестовое задание и показать примеры кода на GitHub.
+Портфолио:
+RuStore https://www.rustore.ru/catalog/app/io.lidle.app
 
-💻 GitHub: [https://github.com/Zakirov-Yuriy](https://github.com/Zakirov-Yuriy)
-✈️ Telegram: @Zak_Yuri
+Google Play https://play.google.com/store/apps/details?id=com.zak.home_fitness
+
+GitHub: [https://github.com/Zakirov-Yuriy](https://github.com/Zakirov-Yuriy)
+
+Telegram: @Zak_Yuri
 
 Буду рад обсудить, как мой опыт может быть полезен вашей команде.
 
