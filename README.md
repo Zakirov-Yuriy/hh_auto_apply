@@ -105,6 +105,43 @@ python run.py
 python run.py --dry-run --verbose --query "Golang developer"
 ```
 
+## Структура проекта
+
+Проект организован согласно принципам **чистой архитектуры (Clean Architecture)**:
+
+```
+hh_auto_apply/
+├── core/                    # Конфигурация и исключения
+│   └── config.py           # Config dataclass
+├── domain/                 # Чистая бизнес-логика
+│   └── entities.py         # ApplyResult, Stats
+├── infrastructure/         # Технические детали (Playwright, HTTP, SQLite)
+│   ├── browser/
+│   │   ├── hh_client.py
+│   │   └── selectors.py
+│   ├── ai/
+│   ├── persistence/
+│   └── utils.py
+├── application/            # Сценарии использования
+│   └── run_session.py
+└── cli/                    # Точка входа
+    ├── main.py
+    └── args.py
+```
+
+📖 Детальная документация архитектуры: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+
+## Документация
+
+| Документ | Содержание |
+|----------|-----------|
+| [docs/INDEX.md](docs/INDEX.md) | Индекс всей документации |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Описание архитектуры слоёв |
+| [docs/CUSTOM_QUESTIONS.md](docs/CUSTOM_QUESTIONS.md) | Обработка кастомных вопросов |
+| [docs/CUSTOM_QUESTIONS_READY.md](docs/CUSTOM_QUESTIONS_READY.md) | Готовые решения |
+| [data/README.md](data/README.md) | Описание ресурсов (CSV, письма, промпты) |
+| [tests/README.md](tests/README.md) | Гайд по тестированию |
+
 ## Тестирование
 1.  **Установите dev-зависимости:**
     ```bash
@@ -112,4 +149,11 @@ python run.py --dry-run --verbose --query "Golang developer"
     ```
 2.  **Запустите тесты:**
     ```bash
-    python -m pytest
+    python -m pytest tests/ -v
+    ```
+3.  **Запустите с покрытием:**
+    ```bash
+    python -m pytest tests/ --cov=hh_auto_apply --cov-report=html
+    ```
+
+Все тесты находятся в папке `tests/` и организованы согласно структуре слоёв.

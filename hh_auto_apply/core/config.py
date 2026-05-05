@@ -1,14 +1,17 @@
+"""Core configuration module for hh_auto_apply application."""
+
 from __future__ import annotations
 
-import argparse
 import os
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from pathlib import Path
 from typing import List
 
 
 @dataclass(frozen=True)
 class Config:
+    """Application configuration loaded from environment variables."""
+
     search_query: str = "python"
     region_ids: List[str] | None = None
     remote_only: bool = False
@@ -22,7 +25,7 @@ class Config:
     resume_match: str = "python разработчик"  # нижний регистр
     fail_if_resume_not_found: bool = True
     require_cover_letter: bool = True
-    cover_letter_path: Path = Path("cover_letter.txt")
+    cover_letter_path: Path = Path("data/cover_letter.txt")
     base_url: str = "https://hh.ru"
     max_pages: int = 100
     empty_pages_tolerance: int = 3
@@ -31,23 +34,24 @@ class Config:
     verbose: bool = False
     vacancies_csv: str = "data/vacancies.csv"
     failed_vacancies_csv: str = "data/vacancies_failed.csv"
-    use_ai_cover_letter: bool = False # Added for AI cover letter functionality
-    openrouter_api_keys: List[str] | None = None # List of OpenRouter API keys for rotation
-    ai_prompt_path: Path | None = None # Path to the AI prompt file
-    ai_model: str = "openai/gpt-oss-120b:free" # Added for customizable AI model
+    use_ai_cover_letter: bool = False
+    openrouter_api_keys: List[str] | None = None
+    ai_prompts_dir: Path = Path("data")  # Директория с файлами промптов
+    ai_model: str = "openai/gpt-oss-120b:free"
 
     @staticmethod
     def from_env() -> "Config":
+        """Load configuration from environment variables."""
         from dotenv import load_dotenv
+
         load_dotenv()
-        
+
         region_ids = [r.strip() for r in os.getenv("HH_REGION_IDS", "").split(",") if r.strip()]
         vacancies_csv = os.getenv("HH_VACANCIES_CSV") or os.getenv("HH_COMPANIES_CSV") or "data/vacancies.csv"
         failed_vacancies_csv = os.getenv("HH_FAILED_VACANCIES_CSV", "data/vacancies_failed.csv")
-        # Parse multiple OpenRouter API keys separated by commas
         api_keys_str = os.getenv("OPENROUTER_API_KEY", "").strip()
         openrouter_api_keys = [k.strip() for k in api_keys_str.split(",") if k.strip()] if api_keys_str else []
-        
+
         return Config(
             search_query=os.getenv("HH_SEARCH_QUERY", "python").strip(),
             region_ids=region_ids or [],
@@ -67,28 +71,6 @@ class Config:
             failed_vacancies_csv=failed_vacancies_csv,
             use_ai_cover_letter=os.getenv("HH_USE_AI_COVER_LETTER", "false").lower() == "true",
             openrouter_api_keys=openrouter_api_keys or [],
-            ai_prompt_path=Path(os.getenv("AI_PROMPT_PATH", "prompt.txt").strip()),
+            ai_prompts_dir=Path(os.getenv("AI_PROMPTS_DIR", "data")),
             ai_model=os.getenv("AI_MODEL", "openai/gpt-oss-120b:free").strip(),
         )
-
-def build_cli_cfg() -> tuple[Config, bool]:
-    parser = argparse.ArgumentParser(description="Auto-apply to vacancies on hh.ru")
-    parser.add_argument("--headless", action="store_true", help="Запуск браузера без UI")
-    parser.add_argument("--dry-run", action="store_true", help="Не отправлять отклики, только сканировать")
-    parser.add_argument("--verbose", action="store_true", help="Подробные логи")
-    parser.add_argument("--query", type=str, help="Переопределить запрос поиска")
-    args = parser.parse_args()
-
-    cfg = Config.from_env()
-    
-    # Создаем новый экземпляр с изменениями из CLI вместо setattr
-    updates = {
-        "headless": bool(args.headless),
-        "verbose": bool(args.verbose),
-    }
-    if args.query:
-        updates["search_query"] = args.query.strip()
-        
-    cfg = replace(cfg, **updates)
-    
-    return cfg, bool(args.dry_run)

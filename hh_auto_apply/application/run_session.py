@@ -7,11 +7,11 @@ from pathlib import Path
 from loguru import logger
 from playwright.sync_api import sync_playwright
 
-from hh_auto_apply.client import HHClient
-from hh_auto_apply.config import Config
-from hh_auto_apply.domain import ApplyResult, Stats
-from hh_auto_apply.persistence import SeenRepo
-from hh_auto_apply.utils import extract_vacancy_id, human_pause
+from hh_auto_apply.core.config import Config
+from hh_auto_apply.domain.entities import ApplyResult, Stats
+from hh_auto_apply.infrastructure.browser.hh_client import HHClient
+from hh_auto_apply.infrastructure.persistence.seen_repo import SeenRepo
+from hh_auto_apply.infrastructure.utils import extract_vacancy_id, human_pause
 
 
 class App:

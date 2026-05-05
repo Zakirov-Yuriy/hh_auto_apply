@@ -1,6 +1,6 @@
 import pytest
 
-from hh_auto_apply.utils import extract_vacancy_id
+from hh_auto_apply.infrastructure.utils import extract_vacancy_id
 
 
 @pytest.mark.parametrize(

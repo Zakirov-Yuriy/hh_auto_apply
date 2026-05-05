@@ -1,9 +1,8 @@
-import sys
+"""Entry point for hh_auto_apply."""
 
-from hh_auto_apply.app import App
-from hh_auto_apply.config import build_cli_cfg
+from __future__ import annotations
+
+from hh_auto_apply.cli.main import main
 
 if __name__ == "__main__":
-    app_cfg, dry = build_cli_cfg()
-    app = App(app_cfg, dry_run=dry)
-    sys.exit(app.run())
+    raise SystemExit(main())
