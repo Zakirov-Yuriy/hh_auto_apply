@@ -31,9 +31,9 @@ class Config:
     verbose: bool = False
     vacancies_csv: str = "vacancies.csv"
     use_ai_cover_letter: bool = False # Added for AI cover letter functionality
-    openrouter_api_key: str | None = None # Added for OpenRouter API key
+    openrouter_api_keys: List[str] | None = None # List of OpenRouter API keys for rotation
     ai_prompt_path: Path | None = None # Path to the AI prompt file
-    ai_model: str = "nousresearch/nous-hermes-2-mixtral-8x7b-dpo" # Added for customizable AI model
+    ai_model: str = "openai/gpt-oss-120b:free" # Added for customizable AI model
 
     @staticmethod
     def from_env() -> "Config":
@@ -42,6 +42,9 @@ class Config:
         
         region_ids = [r.strip() for r in os.getenv("HH_REGION_IDS", "").split(",") if r.strip()]
         vacancies_csv = os.getenv("HH_VACANCIES_CSV") or os.getenv("HH_COMPANIES_CSV") or "vacancies.csv"
+        # Parse multiple OpenRouter API keys separated by commas
+        api_keys_str = os.getenv("OPENROUTER_API_KEY", "").strip()
+        openrouter_api_keys = [k.strip() for k in api_keys_str.split(",") if k.strip()] if api_keys_str else []
         
         return Config(
             search_query=os.getenv("HH_SEARCH_QUERY", "python").strip(),
@@ -59,10 +62,10 @@ class Config:
             require_cover_letter=os.getenv("HH_REQUIRE_COVER_LETTER", "true").lower() == "true",
             max_pages=int(os.getenv("HH_MAX_PAGES", "100")),
             vacancies_csv=vacancies_csv,
-            use_ai_cover_letter=os.getenv("HH_USE_AI_COVER_LETTER", "false").lower() == "true", # Load the new setting
-            openrouter_api_key=os.getenv("OPENROUTER_API_KEY"), # Load the API key
+            use_ai_cover_letter=os.getenv("HH_USE_AI_COVER_LETTER", "false").lower() == "true",
+            openrouter_api_keys=openrouter_api_keys or [],
             ai_prompt_path=Path(os.getenv("AI_PROMPT_PATH", "prompt.txt").strip()),
-            ai_model=os.getenv("AI_MODEL", "nousresearch/nous-hermes-2-mixtral-8x7b-dpo").strip(),
+            ai_model=os.getenv("AI_MODEL", "openai/gpt-oss-120b:free").strip(),
         )
 
 def build_cli_cfg() -> tuple[Config, bool]:

@@ -17,10 +17,60 @@ from hh_auto_apply.selectors import Selectors
 from hh_auto_apply.utils import human_pause
 
 
+class APIKeyRotator:
+    """Управляет ротацией API ключей для OpenRouter.
+    
+    При ошибке с одним ключом автоматически переключается на следующий.
+    """
+    
+    def __init__(self, api_keys: List[str]):
+        """Инициализация ротатора с списком API ключей.
+        
+        Args:
+            api_keys: Список OpenRouter API ключей
+        """
+        if not api_keys:
+            raise ValueError("Необходимо передать хотя бы один API ключ")
+        
+        self.api_keys = api_keys
+        self.current_index = 0
+        logger.info(f"Инициализирован ротатор с {len(api_keys)} ключом(ами)")
+    
+    def get_current_key(self) -> str:
+        """Получить текущий API ключ."""
+        return self.api_keys[self.current_index]
+    
+    def rotate_to_next(self) -> str:
+        """Переключиться на следующий API ключ.
+        
+        Returns:
+            Новый текущий API ключ
+        """
+        old_index = self.current_index
+        self.current_index = (self.current_index + 1) % len(self.api_keys)
+        
+        if self.current_index == old_index and len(self.api_keys) == 1:
+            logger.error("Остался только один API ключ и он выдал ошибку!")
+            raise ValueError("Все API ключи исчерпаны")
+        
+        logger.warning(f"Переключение на следующий API ключ (#{self.current_index + 1}/{len(self.api_keys)})")
+        return self.get_current_key()
+    
+    def has_multiple_keys(self) -> bool:
+        """Проверить, есть ли несколько ключей для ротации."""
+        return len(self.api_keys) > 1
+
+
 class HHClient:
     def __init__(self, cfg: Config):
         self.cfg = cfg
         Path(cfg.screenshots_dir).mkdir(parents=True, exist_ok=True)
+        
+        # Инициализируем ротатор ключей если они есть
+        if cfg.openrouter_api_keys:
+            self.key_rotator = APIKeyRotator(cfg.openrouter_api_keys)
+        else:
+            self.key_rotator = None
 
     # --------- Вспомогательные методы UI ---------
     @staticmethod
@@ -132,14 +182,13 @@ class HHClient:
         return ""
 
     def _generate_cover_letter(self, job_description: str) -> str:
+        """Генерирует сопроводительное письмо используя OpenRouter API с поддержкой ротации ключей."""
+        if not self.key_rotator:
+            logger.error("Ротатор ключей не инициализирован. Проверьте OPENROUTER_API_KEY в .env")
+            return ""
+        
         url = "https://openrouter.ai/api/v1/chat/completions"
-        headers = {
-            "Authorization": f"Bearer {self.cfg.openrouter_api_key}",
-            "Content-Type": "application/json",
-            "HTTP-Referer": "https://hh.ru",
-            "X-Title": "HH Auto Apply Bot",
-        }
-
+        
         try:
             prompt_template = self.cfg.ai_prompt_path.read_text(encoding="utf-8")
         except FileNotFoundError:
@@ -149,31 +198,65 @@ class HHClient:
         final_prompt = prompt_template.format(job_description=job_description)
 
         data = {
-            "model": self.cfg.ai_model,  # Use the model from config
+            "model": self.cfg.ai_model,
             "messages": [
                 {"role": "user", "content": final_prompt}
             ],
-            "max_tokens": 300,  # Limit the length of the cover letter
-            "temperature": 0.7, # Adjust creativity
+            "max_tokens": 300,
+            "temperature": 0.7,
         }
+        
+        # Попытаемся использовать текущий ключ, и если ошибка, перейдём на следующий
+        max_attempts = len(self.key_rotator.api_keys) if self.key_rotator.has_multiple_keys() else 1
+        
+        for attempt in range(max_attempts):
+            try:
+                current_key = self.key_rotator.get_current_key()
+                # Маскируем ключ для логирования
+                masked_key = current_key[:20] + "***" if len(current_key) > 20 else "***"
+                headers = {
+                    "Authorization": f"Bearer {current_key}",
+                    "Content-Type": "application/json",
+                    "HTTP-Referer": "https://hh.ru",
+                    "X-Title": "HH Auto Apply Bot",
+                }
+                
+                logger.debug(f"Отправка запроса к OpenRouter (ключ: {masked_key}...): {url}, модель: {self.cfg.ai_model}")
+                response = requests.post(url, headers=headers, json=data, timeout=60)
+                response.raise_for_status()
+                
+                result = response.json()
+                raw_letter = result["choices"][0]["message"]["content"].strip()
 
-        try:
-            response = requests.post(url, headers=headers, data=json.dumps(data), timeout=60)
-            response.raise_for_status()  # Raise an exception for bad status codes
-            result = response.json()
-            raw_letter = result["choices"][0]["message"]["content"].strip()
+                # Убираем технические токены, которые могут добавлять некоторые модели
+                clean_letter = raw_letter.replace("<s>", "").replace("</s>", "").replace("[INST]", "").replace("[/INST]", "").strip()
 
-            # Убираем технические токены, которые могут добавлять некоторые модели
-            clean_letter = raw_letter.replace("<s>", "").replace("</s>", "").replace("[INST]", "").replace("[/INST]", "").strip()
-
-            logger.info("Сопроводительное письмо сгенерировано.")
-            return clean_letter
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Ошибка при генерации сопроводительного письма: {e}")
-            return ""
-        except (KeyError, IndexError) as e:
-            logger.error(f"Ошибка парсинга ответа от API: {e}")
-            return ""
+                logger.info("Сопроводительное письмо сгенерировано.")
+                return clean_letter
+                
+            except requests.exceptions.RequestException as e:
+                error_msg = str(e)
+                if hasattr(e, 'response') and e.response is not None:
+                    error_msg += f" | Response: {e.response.text[:200]}"
+                logger.warning(f"Ошибка при генерации письма (попытка {attempt + 1}/{max_attempts}): {error_msg}")
+                
+                # Если есть другие ключи, переключимся на следующий
+                if self.key_rotator.has_multiple_keys() and attempt < max_attempts - 1:
+                    try:
+                        self.key_rotator.rotate_to_next()
+                        continue
+                    except ValueError:
+                        logger.error("Все API ключи исчерпаны")
+                        return ""
+                else:
+                    logger.error(f"Ошибка при генерации сопроводительного письма: {error_msg}")
+                    return ""
+                    
+            except (KeyError, IndexError) as e:
+                logger.error(f"Ошибка парсинга ответа от API: {e}")
+                return ""
+        
+        return ""
 
     def get_apply_button(self, page: Page):
         candidates = [
@@ -444,7 +527,7 @@ class HHClient:
 
             apply_btn = self.get_apply_button(page)
             generated_cover_letter = ""
-            if self.cfg.use_ai_cover_letter and self.cfg.openrouter_api_key:
+            if self.cfg.use_ai_cover_letter and self.key_rotator:
                 logger.info("Генерация сопроводительного письма с помощью ИИ...")
                 job_description = self._get_vacancy_description(page)
                 if job_description:
