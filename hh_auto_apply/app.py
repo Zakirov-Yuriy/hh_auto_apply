@@ -39,6 +39,31 @@ class App:
             writer = csv.writer(fh)
             writer.writerow([title, link])
 
+    def _ensure_failed_csv(self) -> None:
+        """Создаёт файл с ошибочными вакансиями если его нет."""
+        p = Path(self.cfg.failed_vacancies_csv)
+        if not p.parent.exists():
+            p.parent.mkdir(parents=True, exist_ok=True)
+        if not p.exists():
+            with p.open("w", encoding="utf-8", newline="") as fh:
+                writer = csv.writer(fh)
+                writer.writerow(["title", "link", "error_type"])
+
+    def _append_failed_vacancy_to_csv(self, title: str, link: str, error_type: str) -> None:
+        """Добавляет вакансию в файл ошибок.
+        
+        Args:
+            title: Название вакансии
+            link: Ссылка на вакансию
+            error_type: Тип ошибки (ERROR, TIMEOUT, RESUME_NOT_FOUND, NO_COVER_LETTER)
+        """
+        p = Path(self.cfg.failed_vacancies_csv)
+        if not p.exists():
+            self._ensure_failed_csv()
+        with p.open("a", encoding="utf-8", newline="") as fh:
+            writer = csv.writer(fh)
+            writer.writerow([title, link, error_type])
+
     def _read_cover_letter(self) -> str:
         p = self.cfg.cover_letter_path
         if not p.exists():
@@ -67,6 +92,7 @@ class App:
         stats = Stats()
         cover_text = self._read_cover_letter()
         self._ensure_csv()
+        self._ensure_failed_csv()
         start_time = time.time()
 
         try:
@@ -141,6 +167,13 @@ class App:
                             stats.bump("skipped_already")
                         else:
                             stats.bump("errors")
+                            # Сохраняем ошибочные вакансии в отдельный файл
+                            try:
+                                error_type = result.value if hasattr(result, 'value') else str(result)
+                                self._append_failed_vacancy_to_csv(title if title else vurl, vurl, error_type)
+                                logger.info(f"Ошибка сохранена в failed_vacancies.csv: {title} — {vurl}")
+                            except Exception as e:
+                                logger.warning(f"Не удалось сохранить ошибку в CSV: {e}")
 
                         human_pause(self.cfg)
 

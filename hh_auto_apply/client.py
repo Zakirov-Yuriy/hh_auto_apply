@@ -81,10 +81,36 @@ class HHClient:
         except Exception:
             return False
 
+    def _get_job_type_folder(self) -> str:
+        """Определяет подпапку для скриншотов на основе search_query.
+        
+        Returns:
+            Название подпапки (flutter, python, или other)
+        """
+        search_query = self.cfg.search_query.lower()
+        if "flutter" in search_query:
+            return "flutter"
+        elif "python" in search_query:
+            return "python"
+        else:
+            return "other"
+
     def make_shot(self, page: Page, tag: str) -> None:
+        """Сохраняет скриншот вакансии в папку, соответствующую типу.
+        
+        Args:
+            page: Playwright Page объект
+            tag: Тег для идентификации типа скриншота (error, timeout, и т.д.)
+        """
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         fname = f"hh_{tag}_{ts}.png"
-        path = str(Path(self.cfg.screenshots_dir) / fname)
+        
+        # Определяем тип вакансии и создаём папку
+        job_type = self._get_job_type_folder()
+        screenshots_path = Path(self.cfg.screenshots_dir) / job_type
+        screenshots_path.mkdir(parents=True, exist_ok=True)
+        
+        path = str(screenshots_path / fname)
         try:
             page.screenshot(path=path, full_page=True)
             logger.warning(f"Скриншот сохранён: {path}")
