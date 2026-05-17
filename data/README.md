@@ -1,68 +1,68 @@
-# Data Directory
+# Директория Data
 
-## CSV Files (Results)
+## CSV-файлы (результаты)
 
 ### vacancies.csv
-Contains successfully processed vacancies where the application was submitted.
-- **Columns:** title, link
-- **Auto-created:** Yes, if missing
-- **Auto-appended:** On successful application
+Содержит успешно обработанные вакансии, на которые был отправлен отклик.
+- **Столбцы:** title (название), link (ссылка), дата
+- **Создаётся автоматически:** Да
+- **Дополняется:** После успешного отклика
 
 ### vacancies_failed.csv
-Contains vacancies with errors or where application failed.
-- **Columns:** title, link, error_type
-- **Auto-created:** Yes, if missing
-- **Auto-appended:** On application failure
+Содержит вакансии с ошибками или где отклик не был отправлен.
+- **Столбцы:** title (название), link (ссылка), error_type (тип ошибки)
+- **Создаётся автоматически:** Да
+- **Дополняется:** После ошибки при отправке отклика
 
-## Resource Files
+## Файлы ресурсов
 
 ### cover_letter.txt
-Standard cover letter template.
-- **Format:** Plain text (UTF-8)
-- **Usage:** Read by `App._read_cover_letter()` when `use_ai_cover_letter=False`
-- **Required:** Yes, if `HH_USE_AI_COVER_LETTER=false` (default)
+Шаблон сопроводительного письма по умолчанию.
+- **Формат:** Простой текст (UTF-8)
+- **Использование:** Читается `App._read_cover_letter()` когда `use_ai_cover_letter=False`
+- **Требуется:** Да, если `HH_USE_AI_COVER_LETTER=false` (по умолчанию)
 
 ### prompt_python.txt
-AI prompt template for Python vacancies.
-- **Format:** Plain text with placeholders
-- **Usage:** Used to generate cover letters via OpenRouter API
-- **Placeholder:** `{company_name}`, `{position}`, etc.
+Инструкция для AI для генерации писем на Python-вакансии.
+- **Формат:** Простой текст с плейсхолдерами
+- **Использование:** Для генерации сопроводительных писем через OpenRouter API
+- **Плейсхолдеры:** `{company_name}`, `{position}` и другие
 
 ### prompt_flutter.txt
-AI prompt template for Flutter vacancies.
-- **Format:** Plain text with placeholders
-- **Usage:** Used to generate cover letters via OpenRouter API
+Инструкция для AI для генерации писем на Flutter-вакансии.
+- **Формат:** Простой текст с плейсхолдерами
+- **Использование:** Для генерации сопроводительных писем через OpenRouter API
 
 ### Python.txt
-Example questions for Python positions.
-- **Format:** Plain text with Q&A pairs
-- **Usage:** Reference for understanding question patterns
+Примеры вопросов для Python-позиций.
+- **Формат:** Простой текст с Q&A парами
+- **Использование:** Справочный материал для понимания типов вопросов
 
 ### Flutter.txt
-Example questions for Flutter positions.
-- **Format:** Plain text with Q&A pairs
-- **Usage:** Reference for understanding question patterns
+Примеры вопросов для Flutter-позиций.
+- **Формат:** Простой текст с Q&A парами
+- **Использование:** Справочный материал для понимания типов вопросов
 
-## Usage
+## Использование
 
 ```python
-# Loading from Config
+# Загрузка из конфига
 from hh_auto_apply.core.config import Config
 
 cfg = Config.from_env()
 
-# Access CSV paths
+# Доступ к путям CSV
 print(cfg.vacancies_csv)        # "data/vacancies.csv"
 print(cfg.failed_vacancies_csv) # "data/vacancies_failed.csv"
 
-# Access resource paths
+# Доступ к путям ресурсов
 print(cfg.cover_letter_path)    # Path("data/cover_letter.txt")
 print(cfg.ai_prompt_path)       # Path("data/prompt.txt")
 ```
 
-## Environment Variables
+## Переменные окружения
 
-Configure paths via .env:
+Настройка путей через .env:
 
 ```bash
 HH_VACANCIES_CSV=data/vacancies.csv
@@ -70,6 +70,5 @@ HH_FAILED_VACANCIES_CSV=data/vacancies_failed.csv
 AI_PROMPT_PATH=data/prompt.txt
 ```
 
-## Note
 
-All CSV and text files are read/written as UTF-8 encoded.
+

@@ -1,24 +1,25 @@
-"""Tests directory for hh_auto_apply."""
+"""Директория тестов для hh_auto_apply."""
 
-# Tests are organized by layer:
+# Тесты организованы по слоям:
 #
 # tests/
-# ├── domain/              Tests for pure business logic (entities, rules)
-# ├── infrastructure/      Tests for technical implementations
-# │   ├── browser/        Tests for Playwright integration
-# │   ├── ai/             Tests for AI/LLM integrations
-# │   └── persistence/    Tests for database and storage
-# ├── application/        Tests for use cases
-# ├── cli/                Tests for CLI and argument parsing
-# ├── conftest.py         Shared fixtures (mock_config, etc.)
-# └── test_*.py          Specific test files
+# ├── domain/              Тесты для чистой бизнес-логики (entities, rules)
+# ├── infrastructure/      Тесты для технических реализаций
+# │   ├── browser/        Тесты для интеграции с Playwright
+# │   ├── ai/             Тесты для AI/LLM интеграций
+# │   └── persistence/    Тесты для базы данных и хранилища
+# ├── application/        Тесты для use cases
+# ├── cli/                Тесты для CLI и парсинга аргументов
+# ├── conftest.py         Общие fixtures (mock_config, и т.д.)
+# └── test_*.py          Конкретные тестовые файлы
 #
-# Run all tests:
+# Запустить все тесты:
 #   python -m pytest tests/ -v
 #
-# Run specific layer:
+# Запустить конкретный слой:
 #   python -m pytest tests/domain/ -v
 #   python -m pytest tests/infrastructure/ -v
 #
-# Run with coverage:
+# Запустить с покрытием:
 #   python -m pytest tests/ --cov=hh_auto_apply --cov-report=html
+

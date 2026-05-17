@@ -2,6 +2,7 @@ import csv
 import signal
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
 
 from loguru import logger
@@ -22,6 +23,26 @@ class App:
         self.client = HHClient(cfg)
         self._stop = False
 
+    def _add_date_header_if_needed(self, filepath: Path, date_str: str) -> None:
+        """Добавляет строку с датой если её ещё нет или дата изменилась."""
+        try:
+            content = filepath.read_text(encoding="utf-8")
+            lines = content.strip().split("\n")
+            
+            # Проверяем, есть ли уже такая дата в конце файла
+            if lines and lines[-1] == f"# {date_str}":
+                return
+            
+            # Если файл содержит какие-то данные и последняя строка не дата, добавляем
+            if lines and not lines[-1].startswith("#"):
+                filepath.write_text(content + f"\n# {date_str}\n", encoding="utf-8")
+            elif not lines or (lines and lines[-1].startswith("#")):
+                # Если последняя строка - дата, просто добавляем новую
+                if lines and lines[-1].startswith("#") and lines[-1] != f"# {date_str}":
+                    filepath.write_text(content + f"\n# {date_str}\n", encoding="utf-8")
+        except Exception as e:
+            logger.debug(f"Ошибка при добавлении даты в CSV: {e}")
+
     def _ensure_csv(self) -> None:
         p = Path(self.cfg.vacancies_csv)
         if not p.parent.exists():
@@ -35,6 +56,11 @@ class App:
         p = Path(self.cfg.vacancies_csv)
         if not p.exists():
             self._ensure_csv()
+        
+        # Проверяем, нужно ли добавить дату
+        current_date = datetime.now().strftime("%d.%m.%Y")
+        self._add_date_header_if_needed(p, current_date)
+        
         with p.open("a", encoding="utf-8", newline="") as fh:
             writer = csv.writer(fh)
             writer.writerow([title, link])
@@ -55,6 +81,11 @@ class App:
         Args:
             title: Название вакансии
             link: Ссылка на вакансию
+        
+        # Проверяем, нужно ли добавить дату
+        current_date = datetime.now().strftime("%d.%m.%Y")
+        self._add_date_header_if_needed(p, current_date)
+        
             error_type: Тип ошибки (ERROR, TIMEOUT, RESUME_NOT_FOUND, NO_COVER_LETTER)
         """
         p = Path(self.cfg.failed_vacancies_csv)

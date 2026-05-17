@@ -30,4 +30,5 @@ Thumbs.db
 hh_seen.sqlite
 .hh_user/
 vacancies.csv
+vacancies_failed.csv
 screenshots/
