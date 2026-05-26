@@ -349,50 +349,60 @@ class HHClient:
         return self.get_apply_button(page) is None
 
     def select_specific_resume(self, page: Page, mask: str) -> bool:
-        containers = [
+        mask = (mask or "").strip().lower()
+        if not mask:
+            logger.warning("Маска резюме пуста, пропускаю выбор.")
+            return False
+
+        # Пробуем несколько селекторов — hh может рендерить по-разному
+        selectors_to_try = [
             Selectors.RESUME_SELECT_ITEM,
             Selectors.RESUME_SELECT_ITEM_IN_GROUP,
             Selectors.RESUME_GENERIC_QA,
-            Selectors.RESUME_LABEL_WITH_TEXT,
         ]
-        textual = [
-            f'xpath=//div[contains(@data-qa,"resume")][.//text()[contains(translate(., "ABCDEFGHIJKLMNOPQRSTUVWXYZЁЙЦУКЕНГШЩЗХЪФЫВАПРОЛДЖЭЯЧСМИТЬБЮabcdefghijklmnopqrstuvwxyzёйцукенгшщзхъфывапролджэячсмитьбю", "abcdefghijklmnopqrstuvwxyzёйцукенгшщзхъфывапролджэячсмитьбю"), "{mask}")]]',
-            f'xpath=//label[.//text()[contains(translate(., "ABCDEFGHIJKLMNOPQRSTUVWXYZЁЙЦУКЕНГШЩЗХЪФЫВАПРОЛДЖЭЯЧСМИТЬБЮabcdefghijklmnopqrstuvwxyzёйцукенгшщзхъфывапролджэячсмитьбю", "abcdefghijklmnopqrstuvwxyzёйцукенгшщзхъфывапролджэячсмитьбю"), "{mask}")]]',
-            f'xpath=//a[contains(@href,"resume")][contains(translate(normalize-space(.), "ABCDEFGHIJKLMNOPQRSTUVWXYZЁЙЦУКЕНГШЩЗХЪФЫВАПРОЛДЖЭЯЧСМИТЬБЮabcdefghijklmnopqrstuvwxyzёйцукенгшщзхъфывапролджэячсмитьбю", "abcdefghijklmnopqrstuvwxyzёйцукенгшщзхъфывапролджэячсмитьбю"), "{mask}")]/ancestor::label|//a[contains(@href,"resume")][contains(translate(normalize-space(.), "ABCDEFGHIJKLMNOPQRSTUVWXYZЁЙЦУКЕНГШЩЗХЪФЫВАПРОЛДЖЭЯЧСМИТЬБЮabcdefghijklmnopqrstuvwxyzёйцукенгшщзхъфывапролджэячсмитьбю", "abcdefghijklmnopqrstuvwxyzёйцукенгшщзхъфывапролджэячсмитьбю"), "{mask}")]/ancestor::*[contains(@data-qa,"resume-select_item")]',
-        ]
-        for sel in textual:
+
+        cards = None
+        n = 0
+        for sel in selectors_to_try:
             loc = page.locator(sel)
-            if loc.count() > 0 and self.is_visible(loc, timeout=700):
-                try:
-                    radio = loc.locator('input[type="radio"]').first
+            cnt = loc.count()
+            if cnt > 0:
+                cards = loc
+                n = cnt
+                logger.info(f'Селектор резюме "{sel}" нашёл карточек: {cnt}')
+                break
+
+        if not cards or n == 0:
+            logger.warning("На форме отклика не найдено ни одной карточки резюме.")
+            return False
+
+        n = min(n, 20)
+        logger.info(f'Ищу резюме по маске "{mask}" среди {n} карточек:')
+
+        for i in range(n):
+            card = cards.nth(i)
+            try:
+                full_text = (card.inner_text() or "").strip().lower()
+                # Берём первые 150 символов чтобы лог не был портянкой
+                preview = full_text[:150].replace("\n", " | ")
+                logger.info(f'  #{i}: "{preview}"')
+
+                if mask in full_text:
+                    radio = card.locator('input[type="radio"]').first
                     if radio.count() > 0 and radio.is_visible():
                         radio.check()
                     else:
-                        loc.first.click()
-                    logger.info(f'Выбрано резюме по маске: "{mask}"')
+                        card.click()
+                    logger.info(f'  >>> ВЫБРАНА карточка #{i} (маска "{mask}" найдена)')
                     return True
-                except Exception:
-                    continue
-        for sel in containers:
-            items = page.locator(sel)
-            n = min(items.count(), 10)
-            for i in range(n):
-                item = items.nth(i)
-                try:
-                    if not self.is_visible(item, timeout=400):
-                        continue
-                    text = (item.inner_text() or "").strip().lower()
-                    if mask in text:
-                        radio = item.locator('input[type="radio"]').first
-                        if radio.count() > 0 and radio.is_visible():
-                            radio.check()
-                        else:
-                            item.click()
-                        logger.info(f'Выбрано резюме по маске: "{mask}"')
-                        return True
-                except Exception:
-                    continue
-        logger.warning(f'Не найдено резюме с маской "{mask}".')
+            except Exception as e:
+                logger.debug(f"  ошибка на карточке #{i}: {e}")
+                continue
+
+        logger.warning(
+            f'Не найдено резюме с маской "{mask}" ни в одной из {n} карточек. '
+            f'Проверь, что маска совпадает с тем, что видно в логе выше.'
+        )
         return False
 
     def select_any_resume_if_needed(self, page: Page) -> bool:
@@ -489,8 +499,11 @@ class HHClient:
         if not selected_exact:
             if self.cfg.fail_if_resume_not_found:
                 self.make_shot(page, "resume_not_found")
-                logger.warning("Отклик не отправляем: нужное резюме не найдено (FAIL_IF_RESUME_NOT_FOUND=true).")
-                # Do not return here, just log and continue to the next vacancy
+                logger.warning(
+                    f'Отклик НЕ отправлен: резюме по маске "{self.cfg.resume_match}" '
+                    f'не найдено (FAIL_IF_RESUME_NOT_FOUND=true).'
+                )
+                return False
             else:
                 self.select_any_resume_if_needed(page)
 
@@ -908,6 +921,7 @@ class HHClient:
     def apply_to_vacancy(self, context: BrowserContext, url: str, cover_text: str) -> tuple[ApplyResult, str]:
         logger.info(f"Открываю вакансию: {url}")
         page = None # Initialize page to None
+        title = ""  # Initialize title to empty stringё
         try:
             page = context.new_page()
             page.on("console", lambda msg: logger.debug(f"[browser] {msg.type} {msg.text}"))
@@ -1019,13 +1033,7 @@ class HHClient:
             except Exception:
                 pass
             return ApplyResult.ERROR, title
-        except TargetClosedError: # Catch TargetClosedError specifically
-            logger.error("Browser context was closed unexpectedly.")
-            try:
-                self.make_shot(page, "context_closed")
-            except Exception:
-                pass
-            return ApplyResult.ERROR, title
+       
         except Exception as e:
             logger.exception(f"Ошибка при обработке вакансии: {e}")
             try:

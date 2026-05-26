@@ -113,6 +113,7 @@ class App:
     def run(self) -> int:
         logger.remove()
         logger.add(sys.stdout, level="DEBUG" if self.cfg.verbose else "INFO", colorize=True, format="<level>{message}</level>")
+        logger.info(f"Запуск с конфигом: search_query={self.cfg.search_query!r} | resume_match={self.cfg.resume_match!r}")
 
         self.repo.cleanup(self.cfg.seen_ttl_days)
         Path(self.cfg.screenshots_dir).mkdir(parents=True, exist_ok=True)
