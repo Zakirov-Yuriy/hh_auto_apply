@@ -9,6 +9,8 @@
 Ключевой проект — маркетплейс LIDLE на Flutter: реализовано 39 REST endpoints, более 8 бизнес доменов на BLoC, авторизация через JWT, оффлайн кеширование, встроенный мессенджер и работа с QR кодами. Приложение опубликовано и поддерживается.
 
 Портфолио:
+https://portfolio-eight-rouge-59.vercel.app/
+
 RuStore https://www.rustore.ru/catalog/app/io.lidle.app
 
 Google Play https://play.google.com/store/apps/details?id=com.zak.home_fitness

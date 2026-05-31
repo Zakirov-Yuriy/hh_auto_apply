@@ -38,6 +38,11 @@ class Config:
     openrouter_api_keys: List[str] | None = None
     ai_prompts_dir: Path = Path("data")  # Директория с файлами промптов
     ai_model: str = "openai/gpt-oss-120b:free"
+    # HH API настройки для получения структурированных данных вакансии
+    use_hh_api_first: bool = True
+    hh_api_user_agent: str = "ZakirovCoverLetter/1.0 (zak.yuri@yandex.ru)"
+    # Стоп-слова для фильтрации вакансий по названию
+    stop_words: List[str] | None = None
 
     @staticmethod
     def from_env() -> "Config":
@@ -51,6 +56,9 @@ class Config:
         failed_vacancies_csv = os.getenv("HH_FAILED_VACANCIES_CSV", "data/vacancies_failed.csv")
         api_keys_str = os.getenv("OPENROUTER_API_KEY", "").strip()
         openrouter_api_keys = [k.strip() for k in api_keys_str.split(",") if k.strip()] if api_keys_str else []
+
+        stop_words_str = os.getenv("HH_STOP_WORDS", "").strip()
+        stop_words = [w.strip() for w in stop_words_str.split(",") if w.strip()] if stop_words_str else []
 
         return Config(
             search_query=os.getenv("HH_SEARCH_QUERY", "python").strip(),
@@ -73,4 +81,10 @@ class Config:
             openrouter_api_keys=openrouter_api_keys or [],
             ai_prompts_dir=Path(os.getenv("AI_PROMPTS_DIR", "data")),
             ai_model=os.getenv("AI_MODEL", "openai/gpt-oss-120b:free").strip(),
+            use_hh_api_first=os.getenv("HH_USE_API_FIRST", "true").lower() == "true",
+            hh_api_user_agent=os.getenv(
+                "HH_API_USER_AGENT",
+                "ZakirovCoverLetter/1.0 (zak.yuri@yandex.ru)",
+            ).strip(),
+            stop_words=stop_words or [],
         )

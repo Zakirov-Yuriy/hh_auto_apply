@@ -14,8 +14,12 @@ from playwright.sync_api import BrowserContext, Page, TimeoutError as PWTimeoutE
 
 from hh_auto_apply.core.config import Config
 from hh_auto_apply.domain.entities import ApplyResult
+from hh_auto_apply.infrastructure.ai.vacancy_api import (
+    fetch_vacancy,
+    format_for_prompt,
+)
 from hh_auto_apply.infrastructure.browser.selectors import Selectors
-from hh_auto_apply.infrastructure.utils import human_pause
+from hh_auto_apply.infrastructure.utils import extract_vacancy_id, human_pause
 
 
 class APIKeyRotator:
@@ -189,6 +193,66 @@ class HHClient:
         human_pause(self.cfg)
         logger.info("Продолжаем работу.")
 
+    def list_vacancies_with_titles(self, page: Page) -> List[tuple[str, str]]:
+        """Возвращает список (url, title) пар с поисковой страницы.
+
+        В отличие от list_vacancy_links_on_page, который возвращает только URL,
+        этот метод также извлекает название вакансии, что нужно для фильтрации
+        по стоп-словам ДО открытия страницы вакансии.
+        """
+        results: list[tuple[str, str]] = []
+        seen_urls: set[str] = set()
+
+        selectors = [
+            Selectors.VACANCY_LIST_TITLE,
+            Selectors.VACANCY_LIST_TITLE_SERP,
+            Selectors.VACANCY_LIST_TITLE_BLOKO,
+        ]
+        for sel in selectors:
+            cards = page.locator(sel)
+            for i in range(cards.count()):
+                try:
+                    href = cards.nth(i).get_attribute("href")
+                except Exception:
+                    continue
+                if not href or "/vacancy/" not in href:
+                    continue
+                clean_url = href.split("?")[0]
+                if clean_url in seen_urls:
+                    continue
+                seen_urls.add(clean_url)
+                try:
+                    title = (cards.nth(i).inner_text() or "").strip()
+                except Exception:
+                    title = ""
+                results.append((clean_url, title))
+
+        # Fallback если основные селекторы не сработали
+        if not results:
+            wrappers = page.locator(Selectors.VACANCY_LIST_WRAPPER)
+            for i in range(min(wrappers.count(), 60)):
+                wrapper = wrappers.nth(i)
+                a = wrapper.locator(Selectors.VACANCY_LINK_IN_WRAPPER)
+                if not a.count():
+                    continue
+                try:
+                    href = a.first.get_attribute("href")
+                except Exception:
+                    continue
+                if not href:
+                    continue
+                clean_url = href.split("?")[0]
+                if clean_url in seen_urls:
+                    continue
+                seen_urls.add(clean_url)
+                try:
+                    title = (a.first.inner_text() or "").strip()
+                except Exception:
+                    title = ""
+                results.append((clean_url, title))
+
+        return results
+
     def list_vacancy_links_on_page(self, page: Page) -> List[str]:
         links: set[str] = set()
         selectors = [
@@ -221,6 +285,33 @@ class HHClient:
                     links.add(href.split("?")[0])
 
         return list(links)
+
+    def _fetch_job_description(self, page: Page, url: str) -> str:
+        """Получает описание вакансии.
+
+        Сначала пробует HH API (даёт ключевые навыки = ATS-теги отдельно),
+        при неудаче откатывается на парсинг DOM. Если включено
+        HH_USE_API_FIRST=false в .env, сразу идёт на DOM.
+        """
+        if self.cfg.use_hh_api_first:
+            try:
+                vacancy_id = extract_vacancy_id(url)
+                vacancy = fetch_vacancy(
+                    vacancy_id,
+                    user_agent=self.cfg.hh_api_user_agent,
+                )
+                if vacancy:
+                    skills_count = len(vacancy.get("key_skills") or [])
+                    logger.info(
+                        f"HH API: получены данные вакансии "
+                        f"(ключевых навыков: {skills_count})"
+                    )
+                    return format_for_prompt(vacancy)
+                logger.info("HH API не вернул данных, откат на парсинг DOM.")
+            except Exception as e:
+                logger.warning(f"Ошибка при обращении к HH API: {e}. Откат на DOM.")
+
+        return self._get_vacancy_description(page)
 
     def _get_vacancy_description(self, page: Page) -> str:
         description_selectors = [
@@ -961,7 +1052,7 @@ class HHClient:
             generated_cover_letter = ""
             if self.cfg.use_ai_cover_letter and self.key_rotator:
                 logger.info("Генерация сопроводительного письма с помощью ИИ...")
-                job_description = self._get_vacancy_description(page)
+                job_description = self._fetch_job_description(page, url)
                 if job_description:
                     generated_cover_letter = self._generate_cover_letter(job_description)
                 else:

@@ -11,7 +11,10 @@
 — высокий фокус на качестве кода благодаря опыту тестирования и автоматизации.
 
 Я быстро погружаюсь в существующую кодовую базу, умею брать ответственность за результат и доводить задачи до продакшена. Готов выполнить тестовое задание и показать примеры кода на GitHub.
+
 Портфолио:
+https://portfolio-eight-rouge-59.vercel.app/
+
 RuStore https://www.rustore.ru/catalog/app/io.lidle.app
 
 Google Play https://play.google.com/store/apps/details?id=com.zak.home_fitness

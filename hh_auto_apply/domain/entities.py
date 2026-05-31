@@ -15,6 +15,7 @@ class Stats:
     found_links: int = 0
     skipped_seen: int = 0
     skipped_already: int = 0
+    skipped_stop_word: int = 0
     opened: int = 0
     applies_done: int = 0
     errors: int = 0

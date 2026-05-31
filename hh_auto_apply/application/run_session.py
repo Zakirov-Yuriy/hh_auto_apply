@@ -1,4 +1,5 @@
 import csv
+import re
 import signal
 import sys
 import time
@@ -110,6 +111,28 @@ class App:
         self._stop = True
         logger.warning("Получен сигнал прерывания. Завершаем после текущего действия…")
 
+    def _matches_stop_word(self, title: str) -> str | None:
+        """Проверяет, содержит ли название вакансии стоп-слово.
+
+        Сравнение идёт без учёта регистра, с границами слов
+        (чтобы "QA" не сматчил "Equanimity", а "Java" не сматчил "JavaScript").
+
+        Returns:
+            Найденное стоп-слово или None, если ничего не найдено.
+        """
+        if not title or not self.cfg.stop_words:
+            return None
+        title_lower = title.lower()
+        for word in self.cfg.stop_words:
+            word_lower = word.strip().lower()
+            if not word_lower:
+                continue
+            # Граница слова: символ не должен быть буквой/цифрой
+            pattern = r"(?<!\w)" + re.escape(word_lower) + r"(?!\w)"
+            if re.search(pattern, title_lower):
+                return word
+        return None
+
     def run(self) -> int:
         logger.remove()
         logger.add(sys.stdout, level="DEBUG" if self.cfg.verbose else "INFO", colorize=True, format="<level>{message}</level>")
@@ -152,8 +175,8 @@ class App:
                     page.goto(search_url, wait_until="domcontentloaded", timeout=45000)
                     human_pause(self.cfg)
 
-                    links = self.client.list_vacancy_links_on_page(page)
-                    if not links:
+                    vacancies = self.client.list_vacancies_with_titles(page)
+                    if not vacancies:
                         empty_pages += 1
                         if empty_pages >= self.cfg.empty_pages_tolerance:
                             logger.info("Несколько пустых страниц подряд — завершаю.")
@@ -162,10 +185,13 @@ class App:
                         continue
 
                     empty_pages = 0
-                    logger.info(f"Найдено вакансий на странице: {len(links)}")
-                    stats.bump("found_links", len(links))
+                    logger.info(f"Найдено вакансий на странице: {len(vacancies)}")
+                    stats.bump("found_links", len(vacancies))
 
-                    for vurl in links:
+                    if self.cfg.stop_words:
+                        logger.debug(f"Стоп-слова активны: {len(self.cfg.stop_words)} шт.")
+
+                    for vurl, vtitle in vacancies:
                         if self._stop:
                             break
                         if applies_done >= self.cfg.max_applies:
@@ -175,6 +201,17 @@ class App:
                         if self.repo.is_seen(vac_id):
                             stats.bump("skipped_seen")
                             logger.info("Эта вакансия уже посещалась ранее — пропускаю.")
+                            continue
+
+                        # Фильтр по стоп-словам в названии вакансии
+                        matched_stop = self._matches_stop_word(vtitle)
+                        if matched_stop:
+                            stats.bump("skipped_stop_word")
+                            logger.info(
+                                f"Пропускаю по стоп-слову '{matched_stop}': {vtitle}"
+                            )
+                            # Отмечаем как seen, чтобы повторно не натыкаться
+                            self.repo.mark_seen(vac_id)
                             continue
 
                         stats.bump("opened")
@@ -220,6 +257,7 @@ class App:
             logger.info("========== ОТЧЁТ ==========")
             logger.info(f"Всего ссылок найдено:        {stats.found_links}")
             logger.info(f"Пропущено (ранее были):      {stats.skipped_seen}")
+            logger.info(f"Пропущено (стоп-слово):      {stats.skipped_stop_word}")
             logger.info(f"Пропущено (уже отклик):      {stats.skipped_already}")
             logger.info(f"Открыто/обработано:          {stats.opened}")
             logger.info(f"Успешных откликов:           {stats.applies_done}")
