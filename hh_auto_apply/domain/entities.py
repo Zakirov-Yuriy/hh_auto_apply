@@ -7,6 +7,8 @@ from enum import Enum
 class ApplyResult(str, Enum):
     SUCCESS = "success"
     SKIPPED_ALREADY_APPLIED = "skipped_already_applied"
+    SKIPPED_EXTERNAL = "external_form"  # внешняя форма / нет Easy Apply
+    SKIPPED_FORM_INCOMPLETE = "form_needs_data"  # Easy Apply требует данных, которые бот не заполняет
     ERROR = "error"
 
 
@@ -16,6 +18,8 @@ class Stats:
     skipped_seen: int = 0
     skipped_already: int = 0
     skipped_stop_word: int = 0
+    skipped_external: int = 0
+    skipped_form: int = 0
     opened: int = 0
     applies_done: int = 0
     errors: int = 0

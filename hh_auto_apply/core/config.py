@@ -12,6 +12,12 @@ from typing import List
 class Config:
     """Application configuration loaded from environment variables."""
 
+    # Площадка поиска работы: "hh" или "linkedin".
+    platform: str = "hh"
+    # Текстовая локация для LinkedIn (region_ids от hh там не работают).
+    # Например: "Russia", "Remote", "Germany". Пусто = без фильтра по локации.
+    linkedin_location: str = ""
+
     search_query: str = "python"
     region_ids: List[str] | None = None
     remote_only: bool = False
@@ -60,14 +66,23 @@ class Config:
         stop_words_str = os.getenv("HH_STOP_WORDS", "").strip()
         stop_words = [w.strip() for w in stop_words_str.split(",") if w.strip()] if stop_words_str else []
 
+        platform = os.getenv("PLATFORM", "hh").strip().lower()
+
+        # У каждой площадки своя папка сессии браузера (разные cookies/логин),
+        # если пользователь явно не задал HH_PERSIST_DIR.
+        default_persist = ".linkedin_user" if platform in ("linkedin", "li") else ".hh_user"
+        persist_dir = os.getenv("HH_PERSIST_DIR", default_persist)
+
         return Config(
+            platform=platform,
+            linkedin_location=os.getenv("LINKEDIN_LOCATION", "").strip(),
             search_query=os.getenv("HH_SEARCH_QUERY", "python").strip(),
             region_ids=region_ids or [],
             remote_only=os.getenv("HH_REMOTE_ONLY", "false").lower() == "true",
             max_applies=int(os.getenv("HH_MAX_APPLIES", "200")),
             min_sleep=float(os.getenv("HH_MIN_SLEEP", "3")),
             max_sleep=float(os.getenv("HH_MAX_SLEEP", "7")),
-            persist_dir=os.getenv("HH_PERSIST_DIR", ".hh_user"),
+            persist_dir=persist_dir,
             screenshots_dir=os.getenv("HH_SCREENSHOTS_DIR", "screenshots"),
             db_path=os.getenv("HH_DB_PATH", "hh_seen.sqlite"),
             seen_ttl_days=int(os.getenv("HH_SEEN_TTL_DAYS", "14")),

@@ -67,6 +67,8 @@ class APIKeyRotator:
 
 
 class HHClient:
+    platform = "hh"
+
     def __init__(self, cfg: Config):
         self.cfg = cfg
         Path(cfg.screenshots_dir).mkdir(parents=True, exist_ok=True)
@@ -76,6 +78,10 @@ class HHClient:
             self.key_rotator = APIKeyRotator(cfg.openrouter_api_keys)
         else:
             self.key_rotator = None
+
+    def extract_job_id(self, url: str) -> str:
+        """Извлекает ID вакансии из URL hh.ru (для базы "уже видел")."""
+        return extract_vacancy_id(url)
 
     # --------- Вспомогательные методы UI ---------
     @staticmethod

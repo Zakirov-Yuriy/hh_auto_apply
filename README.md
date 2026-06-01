@@ -92,6 +92,9 @@ HH_RESUME_TITLE_MATCH="Python разработчик" # Маска для выб
 После установки и настройки запустите скрипт:
 ```bash
 python run.py
+
+python run.py --platform hh         # как раньше
+python run.py --platform linkedin   # LinkedIn Easy Apply
 ```
 
 **Аргументы командной строки:**

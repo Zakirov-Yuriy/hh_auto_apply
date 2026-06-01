@@ -11,9 +11,9 @@ from playwright.sync_api import sync_playwright
 
 from hh_auto_apply.core.config import Config
 from hh_auto_apply.domain.entities import ApplyResult, Stats
-from hh_auto_apply.infrastructure.browser.hh_client import HHClient
+from hh_auto_apply.infrastructure.browser.factory import make_client
 from hh_auto_apply.infrastructure.persistence.seen_repo import SeenRepo
-from hh_auto_apply.infrastructure.utils import extract_vacancy_id, human_pause
+from hh_auto_apply.infrastructure.utils import human_pause
 
 
 class App:
@@ -21,8 +21,22 @@ class App:
         self.cfg = cfg
         self.dry_run = dry_run
         self.repo = SeenRepo(cfg.db_path)
-        self.client = HHClient(cfg)
+        self.client = make_client(cfg)
         self._stop = False
+
+        # Отдельные CSV-файлы под каждую площадку (кроме hh — он остаётся как был,
+        # для обратной совместимости). Для LinkedIn получится, например:
+        #   data/vacancies_linkedin.csv и data/vacancies_failed_linkedin.csv
+        self.vacancies_csv = self._platform_csv_path(cfg.vacancies_csv)
+        self.failed_vacancies_csv = self._platform_csv_path(cfg.failed_vacancies_csv)
+
+    def _platform_csv_path(self, path_str: str) -> str:
+        """Добавляет суффикс площадки к имени CSV для всех площадок, кроме hh."""
+        platform = self.client.platform
+        if platform == "hh":
+            return path_str
+        p = Path(path_str)
+        return str(p.with_name(f"{p.stem}_{platform}{p.suffix}"))
 
     def _add_date_header_if_needed(self, filepath: Path, date_str: str) -> None:
         """Добавляет строку с датой если её ещё нет или дата изменилась."""
@@ -45,7 +59,7 @@ class App:
             logger.debug(f"Ошибка при добавлении даты в CSV: {e}")
 
     def _ensure_csv(self) -> None:
-        p = Path(self.cfg.vacancies_csv)
+        p = Path(self.vacancies_csv)
         if not p.parent.exists():
             p.parent.mkdir(parents=True, exist_ok=True)
         if not p.exists():
@@ -54,7 +68,7 @@ class App:
                 writer.writerow(["title", "link"])
 
     def _append_vacancy_to_csv(self, title: str, link: str) -> None:
-        p = Path(self.cfg.vacancies_csv)
+        p = Path(self.vacancies_csv)
         if not p.exists():
             self._ensure_csv()
         
@@ -68,7 +82,7 @@ class App:
 
     def _ensure_failed_csv(self) -> None:
         """Создаёт файл с ошибочными вакансиями если его нет."""
-        p = Path(self.cfg.failed_vacancies_csv)
+        p = Path(self.failed_vacancies_csv)
         if not p.parent.exists():
             p.parent.mkdir(parents=True, exist_ok=True)
         if not p.exists():
@@ -89,7 +103,7 @@ class App:
         
             error_type: Тип ошибки (ERROR, TIMEOUT, RESUME_NOT_FOUND, NO_COVER_LETTER)
         """
-        p = Path(self.cfg.failed_vacancies_csv)
+        p = Path(self.failed_vacancies_csv)
         if not p.exists():
             self._ensure_failed_csv()
         with p.open("a", encoding="utf-8", newline="") as fh:
@@ -98,11 +112,20 @@ class App:
 
     def _read_cover_letter(self) -> str:
         p = self.cfg.cover_letter_path
+        # Для LinkedIn сопроводительное письмо необязательно: в Easy Apply
+        # поле письма присутствует не всегда. Не валимся, если файла нет.
+        linkedin = self.cfg.platform.strip().lower() in ("linkedin", "li")
         if not p.exists():
+            if linkedin:
+                logger.warning("cover_letter.txt не найден — продолжаю без письма (LinkedIn).")
+                return ""
             logger.error("Не найден cover_letter.txt рядом со скриптом.")
             sys.exit(1)
         txt = p.read_text(encoding="utf-8").strip()
         if not txt:
+            if linkedin:
+                logger.warning("cover_letter.txt пуст — продолжаю без письма (LinkedIn).")
+                return ""
             logger.error("Файл cover_letter.txt пуст.")
             sys.exit(1)
         return txt
@@ -197,7 +220,7 @@ class App:
                         if applies_done >= self.cfg.max_applies:
                             break
 
-                        vac_id = extract_vacancy_id(vurl)
+                        vac_id = f"{self.client.platform}:{self.client.extract_job_id(vurl)}"
                         if self.repo.is_seen(vac_id):
                             stats.bump("skipped_seen")
                             logger.info("Эта вакансия уже посещалась ранее — пропускаю.")
@@ -234,13 +257,30 @@ class App:
                                 logger.warning(f"Не удалось сохранить в CSV: {e}")
                         elif result is ApplyResult.SKIPPED_ALREADY_APPLIED:
                             stats.bump("skipped_already")
+                        elif result in (
+                            ApplyResult.SKIPPED_EXTERNAL,
+                            ApplyResult.SKIPPED_FORM_INCOMPLETE,
+                        ):
+                            # Это не сбой бота, а вакансии, на которые отклик через
+                            # Easy Apply невозможен. Пишем в failed-файл с понятной
+                            # причиной, но не считаем ошибками.
+                            if result is ApplyResult.SKIPPED_EXTERNAL:
+                                stats.bump("skipped_external")
+                            else:
+                                stats.bump("skipped_form")
+                            try:
+                                self._append_failed_vacancy_to_csv(
+                                    title if title else vurl, vurl, result.value
+                                )
+                            except Exception as e:
+                                logger.warning(f"Не удалось сохранить причину в CSV: {e}")
                         else:
                             stats.bump("errors")
                             # Сохраняем ошибочные вакансии в отдельный файл
                             try:
                                 error_type = result.value if hasattr(result, 'value') else str(result)
                                 self._append_failed_vacancy_to_csv(title if title else vurl, vurl, error_type)
-                                logger.info(f"Ошибка сохранена в failed_vacancies.csv: {title} — {vurl}")
+                                logger.info(f"Ошибка сохранена в {self.failed_vacancies_csv}: {title} — {vurl}")
                             except Exception as e:
                                 logger.warning(f"Не удалось сохранить ошибку в CSV: {e}")
 
@@ -259,9 +299,11 @@ class App:
             logger.info(f"Пропущено (ранее были):      {stats.skipped_seen}")
             logger.info(f"Пропущено (стоп-слово):      {stats.skipped_stop_word}")
             logger.info(f"Пропущено (уже отклик):      {stats.skipped_already}")
+            logger.info(f"Пропущено (внешняя форма):   {stats.skipped_external}")
+            logger.info(f"Пропущено (форма с вопросами):{stats.skipped_form}")
             logger.info(f"Открыто/обработано:          {stats.opened}")
             logger.info(f"Успешных откликов:           {stats.applies_done}")
-            logger.info(f"Ошибок/неуспехов:            {stats.errors}")
+            logger.info(f"Ошибок (сбои бота):          {stats.errors}")
             logger.info(f"Процент успешности:          {success_rate:.1f}%")
             logger.info(f"Лимит откликов (MAX):        {self.cfg.max_applies}")
             logger.info(f"Время работы:                {elapsed:.2f} сек")

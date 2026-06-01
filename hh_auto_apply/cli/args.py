@@ -16,6 +16,7 @@ class CLIArgs:
     dry_run: bool = False
     verbose: bool = False
     query: str | None = None
+    platform: str | None = None
 
 
 def parse_args() -> CLIArgs:
@@ -24,7 +25,13 @@ def parse_args() -> CLIArgs:
     Returns:
         CLIArgs: Parsed arguments.
     """
-    parser = argparse.ArgumentParser(description="Auto-apply to vacancies on hh.ru")
+    parser = argparse.ArgumentParser(description="Авто-отклик на вакансии (hh.ru / LinkedIn)")
+    parser.add_argument(
+        "--platform",
+        type=str,
+        choices=["hh", "linkedin"],
+        help="Площадка: hh или linkedin (по умолчанию из PLATFORM или hh)",
+    )
     parser.add_argument("--headless", action="store_true", help="Запуск браузера без UI")
     parser.add_argument("--dry-run", action="store_true", help="Не отправлять отклики, только сканировать")
     parser.add_argument("--verbose", action="store_true", help="Подробные логи")
@@ -36,6 +43,7 @@ def parse_args() -> CLIArgs:
         dry_run=bool(args.dry_run),
         verbose=bool(args.verbose),
         query=args.query,
+        platform=args.platform,
     )
 
 
@@ -55,5 +63,15 @@ def apply_cli_overrides(cfg: Config, cli_args: CLIArgs) -> Config:
     }
     if cli_args.query:
         updates["search_query"] = cli_args.query.strip()
+
+    if cli_args.platform:
+        new_platform = cli_args.platform.strip().lower()
+        updates["platform"] = new_platform
+        # Если папка сессии осталась дефолтной, переключаем её под новую площадку,
+        # чтобы hh и linkedin не делили один профиль браузера.
+        if cfg.persist_dir in (".hh_user", ".linkedin_user"):
+            updates["persist_dir"] = (
+                ".linkedin_user" if new_platform in ("linkedin", "li") else ".hh_user"
+            )
 
     return replace(cfg, **updates)
