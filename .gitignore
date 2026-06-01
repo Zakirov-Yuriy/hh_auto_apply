@@ -29,6 +29,7 @@ Thumbs.db
 .env
 hh_seen.sqlite
 .hh_user/
+.linkedin_user/
 vacancies.csv
 vacancies_failed.csv
 screenshots/
