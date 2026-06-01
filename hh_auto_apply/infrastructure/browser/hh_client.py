@@ -93,8 +93,11 @@ class HHClient:
             Название подпапки (flutter, python, или other)
         """
         search_query = self.cfg.search_query.lower()
+        fullstack_markers = ("fullstack", "full stack", "full-stack", "фулстек", "фуллстек", "фул стек")
         if "flutter" in search_query:
             return "flutter"
+        elif any(marker in search_query for marker in fullstack_markers):
+            return "fullstack"
         elif "python" in search_query:
             return "python"
         else:
@@ -116,6 +119,13 @@ class HHClient:
             prompt_file = self.cfg.ai_prompts_dir / "prompt_flutter.txt"
             if prompt_file.exists():
                 logger.debug(f"Найден Flutter промпт: {prompt_file}")
+                return prompt_file
+        
+        fullstack_markers = ("fullstack", "full stack", "full-stack", "фулстек", "фуллстек", "фул стек")
+        if any(marker in search_query for marker in fullstack_markers):
+            prompt_file = self.cfg.ai_prompts_dir / "prompt_fullstack.txt"
+            if prompt_file.exists():
+                logger.debug(f"Найден Fullstack промпт: {prompt_file}")
                 return prompt_file
         
         if "python" in search_query:
@@ -363,7 +373,7 @@ class HHClient:
             "messages": [
                 {"role": "user", "content": final_prompt}
             ],
-            "max_tokens": 300,
+            "max_tokens": 1000,
             "temperature": 0.7,
         }
         

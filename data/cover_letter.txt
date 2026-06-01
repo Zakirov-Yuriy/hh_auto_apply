@@ -6,16 +6,13 @@
 
 Работаю с архитектурой Clean Architecture, разделяю слои и слежу за поддерживаемостью кода. Часто реализую нативные модули и интеграции через Platform Channels и FFI, когда Flutter ограничен. Уверенно работаю с сетью REST, WebSocket, GraphQL, а также с Firebase сервисами включая push уведомления end to end.
 
-Ключевой проект — маркетплейс LIDLE на Flutter: реализовано 39 REST endpoints, более 8 бизнес доменов на BLoC, авторизация через JWT, оффлайн кеширование, встроенный мессенджер и работа с QR кодами. Приложение опубликовано и поддерживается.
+Ключевой проект, маркетплейс LIDLE на Flutter: реализовано 39 REST endpoints, более 8 бизнес доменов на BLoC, авторизация через JWT, оффлайн кеширование, встроенный мессенджер и работа с QR кодами. Приложение опубликовано и поддерживается.
 
-Портфолио:
-RuStore https://www.rustore.ru/catalog/app/io.lidle.app
-
-Google Play https://play.google.com/store/apps/details?id=com.zak.home_fitness
-
-GitHub https://github.com/Zakirov-Yuriy
-
-Telegram @Zak_Yuri
+Портфолио: https://portfolio-eight-rouge-59.vercel.app/
+RuStore: https://www.rustore.ru/catalog/app/io.lidle.app
+Google Play: https://play.google.com/store/apps/details?id=com.zak.home_fitness
+GitHub: https://github.com/Zakirov-Yuriy
+Telegram: @Zak_Yuri
 
 Буду рад обсудить, как могу быть полезен вашей команде.
 
