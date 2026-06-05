@@ -1,162 +1,301 @@
 # hh_auto_apply
 
-## Описание проекта
-`hh_auto_apply` — это Python-скрипт для автоматизации процесса отклика на вакансии на сайте hh.ru. Он разработан для упрощения рутинных задач поиска и подачи заявок, позволяя пользователю сосредоточиться на более важных аспектах трудоустройства.
+AI powered job application automation tool for hh.ru and LinkedIn.
 
-Ключевая особенность проекта — **интеграция с AI для генерации персонализированных сопроводительных писем** для каждой вакансии на основе её описания.
+The project automates vacancy discovery, application submission and personalized cover letter generation using browser automation and LLM models.
 
-Скрипт использует `Playwright` для взаимодействия с веб-интерфейсом, `SQLite` для отслеживания просмотренных вакансий и `dotenv` для гибкого управления конфигурацией.
+Built with Clean Architecture, Playwright automation and OpenRouter integration.
 
-## Возможности
-*   **AI-генерация сопроводительных писем:** Автоматическое создание уникальных писем для каждой вакансии с помощью моделей ИИ через OpenRouter.
-*   **Гибкая настройка AI:** Возможность легко менять AI-модель и редактировать инструкции (промпт) для генерации.
-*   **Автоматический поиск:** Поиск вакансий по заданным критериям (ключевые слова, регионы, удаленная работа).
-*   **Отслеживание откликов:** Ведение базы данных `SQLite` для предотвращения повторных откликов.
-*   **Выбор резюме:** Возможность указать, какое именно резюме использовать для отклика.
-*   **Безопасный режим:** "Сухой запуск" (`dry-run`) для тестирования без реальной отправки откликов.
-*   **Отчетность:** Сохранение информации об успешных откликах в CSV-файл.
-*   **Отладка:** Создание скриншотов в случае ошибок.
+---
 
-## Установка
-1.  **Клонируйте репозиторий:**
-    ```bash
-    git clone https://github.com/Zakirov-Yuriy/hh_auto_apply.git
-    cd hh_auto_apply
-    ```
+## Features
 
-2.  **Создайте и активируйте виртуальное окружение (рекомендуется):**
-    ```bash
-    python -m venv .venv
-    # Для Windows:
-    .venv\Scripts\activate
-    # Для Linux/macOS:
-    source .venv/bin/activate
-    ```
+### Job Search Automation
 
-3.  **Установите зависимости:**
-    ```bash
-    pip install -r requirements.txt
-    ```
+* Automated vacancy discovery
+* hh.ru application workflow
+* LinkedIn Easy Apply support
+* Vacancy filtering and matching
+* Duplicate application prevention
 
-4.  **Установите браузеры для Playwright:**
-    ```bash
-    playwright install
-    ```
+### AI Features
 
-## Конфигурация
-Проект настраивается через файл `.env`. Скопируйте `example.env` (если он есть) или создайте `.env` вручную и заполните его.
+* Personalized cover letter generation
+* Vacancy analysis using LLMs
+* Resume matching
+* OpenRouter integration
+* Custom prompt templates
 
-### Основные настройки
+### Automation
+
+* Browser automation with Playwright
+* Automatic form filling
+* Session management
+* Custom question handling
+* Dry run mode
+
+### Data Management
+
+* SQLite storage
+* Application history tracking
+* CSV export and reporting
+* Process monitoring
+
+---
+
+## Tech Stack
+
+### Backend
+
+* Python 3
+* Playwright
+* SQLite
+
+### AI
+
+* OpenRouter
+* LLM Integration
+* Prompt Engineering
+
+### Architecture
+
+* Clean Architecture
+* Layered Architecture
+* Domain Layer
+* Application Layer
+* Infrastructure Layer
+
+### Testing
+
+* pytest
+
+---
+
+## Architecture
+
+```text
+CLI
+ │
+ ▼
+Application Layer
+ │
+ ▼
+Domain Layer
+ │
+ ▼
+Infrastructure Layer
+ ├── Playwright
+ ├── OpenRouter
+ ├── SQLite
+ └── External Platforms
+      ├── hh.ru
+      └── LinkedIn
+```
+
+---
+
+## What This Project Demonstrates
+
+* Python backend development
+* Browser automation
+* Playwright integration
+* LLM integration
+* Prompt engineering
+* Clean Architecture
+* Data persistence
+* Automated testing
+* CLI application development
+* Third-party API integrations
+
+---
+
+## Installation
+
+### Clone repository
+
+```bash
+git clone https://github.com/Zakirov-Yuriy/hh_auto_apply.git
+cd hh_auto_apply
+```
+
+### Create virtual environment
+
+```bash
+python -m venv .venv
+```
+
+Windows:
+
+```bash
+.venv\Scripts\activate
+```
+
+Linux/macOS:
+
+```bash
+source .venv/bin/activate
+```
+
+### Install dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+### Install Playwright browsers
+
+```bash
+playwright install
+```
+
+---
+
+## Configuration
+
+The project is configured through a `.env` file.
+
+### Main Settings
+
 ```dotenv
 HH_SEARCH_QUERY="python разработчик"
-HH_REGION_IDS="1,2" # ID регионов (Москва, Санкт-Петербург)
+HH_REGION_IDS="1,2"
 HH_REMOTE_ONLY="true"
 HH_MAX_APPLIES="100"
-HH_RESUME_TITLE_MATCH="Python разработчик" # Маска для выбора резюме
-# ... и другие основные настройки ...
+HH_RESUME_TITLE_MATCH="Python разработчик"
 ```
 
-### Настройка AI для сопроводительных писем
-1.  **Включите AI-генерацию:**
-    ```dotenv
-    USE_AI_COVER_LETTER="true"
-    ```
+### Enable AI Cover Letters
 
-2.  **Получите и вставьте API-ключ:**
-    *   Зарегистрируйтесь на [OpenRouter.ai](https://openrouter.ai/).
-    *   Перейдите в раздел [Keys](https://openrouter.ai/keys) и скопируйте ваш ключ.
-    *   Вставьте его в `.env`:
-    ```dotenv
-    OPENROUTER_API_KEY="sk-or-v1-..."
-    ```
+```dotenv
+USE_AI_COVER_LETTER="true"
+```
 
-3.  **Выберите AI-модель:**
-    Укажите модель, которую хотите использовать. Рекомендуется начать с проверенных бесплатных вариантов.
-    ```dotenv
-    # Рекомендуемые бесплатные модели:
-    # - mistralai/mistral-7b-instruct:free
-    # - google/gemma-7b-it:free
-    AI_MODEL="mistralai/mistral-7b-instruct:free"
-    ```
+### OpenRouter API Key
 
-4.  **Настройте промпт (инструкцию для AI):**
-    *   Откройте файл `prompt.txt`.
-    *   Отредактируйте текст, чтобы задать стиль, язык и содержание писем, которые будет генерировать AI.
-    *   **Важно:** Не удаляйте плейсхолдер `{job_description}`, на его место подставляется описание вакансии.
-    *   Путь к этому файлу указывается в `.env`:
-    ```dotenv
-    AI_PROMPT_PATH="prompt.txt"
-    ```
+```dotenv
+OPENROUTER_API_KEY="sk-or-v1-..."
+```
 
-## Использование
-После установки и настройки запустите скрипт:
+### AI Model
+
+```dotenv
+AI_MODEL="mistralai/mistral-7b-instruct:free"
+```
+
+### Prompt Configuration
+
+```dotenv
+AI_PROMPT_PATH="prompt.txt"
+```
+
+The prompt file can be customized to generate cover letters in different styles and languages.
+
+---
+
+## Usage
+
+Run hh.ru automation:
+
 ```bash
-python run.py
-
-python run.py --platform hh         # как раньше
-python run.py --platform linkedin   # LinkedIn Easy Apply
+python run.py --platform hh
 ```
 
-**Аргументы командной строки:**
-*   `--headless`: Запуск браузера в фоновом режиме.
-*   `--dry-run`: Сканирование без отправки откликов.
-*   `--verbose`: Подробные логи.
-*   `--query "ваш запрос"`: Временно переопределяет `HH_SEARCH_QUERY`.
+Run LinkedIn automation:
 
-Пример:
 ```bash
-python run.py --dry-run --verbose --query "Golang developer"
+python run.py --platform linkedin
 ```
 
-## Структура проекта
+### Command Line Options
 
-Проект организован согласно принципам **чистой архитектуры (Clean Architecture)**:
-
+```bash
+--headless
+--dry-run
+--verbose
+--query "python developer"
 ```
+
+Example:
+
+```bash
+python run.py --dry-run --verbose --query "Python Backend Developer"
+```
+
+---
+
+## Project Structure
+
+```text
 hh_auto_apply/
-├── core/                    # Конфигурация и исключения
-│   └── config.py           # Config dataclass
-├── domain/                 # Чистая бизнес-логика
-│   └── entities.py         # ApplyResult, Stats
-├── infrastructure/         # Технические детали (Playwright, HTTP, SQLite)
+├── core/
+│   └── config.py
+│
+├── domain/
+│   └── entities.py
+│
+├── infrastructure/
 │   ├── browser/
 │   │   ├── hh_client.py
 │   │   └── selectors.py
 │   ├── ai/
 │   ├── persistence/
 │   └── utils.py
-├── application/            # Сценарии использования
+│
+├── application/
 │   └── run_session.py
-└── cli/                    # Точка входа
-    ├── main.py
-    └── args.py
+│
+├── cli/
+│   ├── main.py
+│   └── args.py
+│
+├── docs/
+├── tests/
+└── run.py
 ```
 
-📖 Детальная документация архитектуры: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+---
 
-## Документация
+## Documentation
 
-| Документ | Содержание |
-|----------|-----------|
-| [docs/INDEX.md](docs/INDEX.md) | Индекс всей документации |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Описание архитектуры слоёв |
-| [docs/CUSTOM_QUESTIONS.md](docs/CUSTOM_QUESTIONS.md) | Обработка кастомных вопросов |
-| [docs/CUSTOM_QUESTIONS_READY.md](docs/CUSTOM_QUESTIONS_READY.md) | Готовые решения |
-| [data/README.md](data/README.md) | Описание ресурсов (CSV, письма, промпты) |
-| [tests/README.md](tests/README.md) | Гайд по тестированию |
+| Document                       | Description               |
+| ------------------------------ | ------------------------- |
+| docs/INDEX.md                  | Documentation index       |
+| docs/ARCHITECTURE.md           | Architecture overview     |
+| docs/CUSTOM_QUESTIONS.md       | Custom questions handling |
+| docs/CUSTOM_QUESTIONS_READY.md | Ready-to-use solutions    |
+| data/README.md                 | Resources and templates   |
+| tests/README.md                | Testing guide             |
 
-## Тестирование
-1.  **Установите dev-зависимости:**
-    ```bash
-    pip install -r requirements-dev.txt
-    ```
-2.  **Запустите тесты:**
-    ```bash
-    python -m pytest tests/ -v
-    ```
-3.  **Запустите с покрытием:**
-    ```bash
-    python -m pytest tests/ --cov=hh_auto_apply --cov-report=html
-    ```
+---
 
-Все тесты находятся в папке `tests/` и организованы согласно структуре слоёв.
+## Testing
+
+Install development dependencies:
+
+```bash
+pip install -r requirements-dev.txt
+```
+
+Run tests:
+
+```bash
+pytest tests/ -v
+```
+
+Run tests with coverage:
+
+```bash
+pytest tests/ --cov=hh_auto_apply --cov-report=html
+```
+
+---
+
+## Author
+
+**Yuriy Zakirov**
+
+Python Backend Developer
+
+GitHub: https://github.com/Zakirov-Yuriy
+
+Telegram: @Zak_Yuri
