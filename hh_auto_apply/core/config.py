@@ -8,6 +8,36 @@ from pathlib import Path
 from typing import List
 
 
+# Сопоставление названий уровней опыта (рус/англ) кодам LinkedIn (f_E).
+_LINKEDIN_EXPERIENCE_MAP = {
+    "1": "1", "стажер": "1", "стажёр": "1", "intern": "1",
+    "internship": "1", "trainee": "1",
+    "2": "2", "молодой специалист": "2", "entry": "2",
+    "entry level": "2", "junior": "2", "начинающий": "2",
+    "3": "3", "специалист": "3", "associate": "3", "mid": "3",
+    "4": "4", "старший": "4", "senior": "4", "mid-senior": "4",
+    "5": "5", "директор": "5", "director": "5", "руководитель": "5",
+    "6": "6", "executive": "6", "высшее руководство": "6",
+}
+
+
+def parse_experience_levels(raw: str) -> List[str]:
+    """Парсит строку уровней опыта в коды LinkedIn f_E, сохраняя порядок без дублей.
+
+    Принимает и коды ("1,2,3"), и названия ("стажер, молодой специалист, специалист").
+    Нераспознанные значения игнорируются.
+    """
+    codes: list[str] = []
+    for part in (raw or "").split(","):
+        key = part.strip().lower()
+        if not key:
+            continue
+        code = _LINKEDIN_EXPERIENCE_MAP.get(key)
+        if code and code not in codes:
+            codes.append(code)
+    return codes
+
+
 @dataclass(frozen=True)
 class Config:
     """Application configuration loaded from environment variables."""
@@ -15,8 +45,14 @@ class Config:
     # Площадка поиска работы: "hh" или "linkedin".
     platform: str = "hh"
     # Текстовая локация для LinkedIn (region_ids от hh там не работают).
-    # Например: "Russia", "Remote", "Germany". Пусто = без фильтра по локации.
+    # Например: "Russia", "Remote", "Germany". Пусто = без фильтра по локации
+    # (поиск по всем странам).
     linkedin_location: str = ""
+    # Уровни опыта LinkedIn (параметр f_E). Список кодов LinkedIn:
+    # 1=Стажёр, 2=Молодой специалист, 3=Специалист,
+    # 4=Старший/Mid-Senior, 5=Директор, 6=Высшее руководство.
+    # По умолчанию: стажёр + молодой специалист + специалист.
+    linkedin_experience_levels: List[str] | None = None
 
     search_query: str = "python"
     region_ids: List[str] | None = None
@@ -32,6 +68,14 @@ class Config:
     fail_if_resume_not_found: bool = True
     require_cover_letter: bool = True
     cover_letter_path: Path = Path("data/cover_letter.txt")
+    # LinkedIn Easy Apply: тексты для полей Headline и Summary (необязательны).
+    # Если файла нет или он пуст — соответствующее поле бот просто не трогает.
+    linkedin_headline_path: Path = Path("data/linkedin_headline.txt")
+    linkedin_summary_path: Path = Path("data/linkedin_summary.txt")
+    # Город для поля "Location (city)" в форме Easy Apply (typeahead с подсказками).
+    # Бот печатает это значение и выбирает первый вариант из выпадающего списка.
+    # Пусто = поле не трогаем. Пример: "Manavgat".
+    linkedin_city: str = ""
     base_url: str = "https://hh.ru"
     max_pages: int = 100
     empty_pages_tolerance: int = 3
@@ -68,6 +112,11 @@ class Config:
 
         platform = os.getenv("PLATFORM", "hh").strip().lower()
 
+        # Уровни опыта LinkedIn: по умолчанию стажёр + молодой специалист + специалист.
+        experience_levels = parse_experience_levels(
+            os.getenv("LINKEDIN_EXPERIENCE_LEVELS", "1,2,3")
+        )
+
         # У каждой площадки своя папка сессии браузера (разные cookies/логин),
         # если пользователь явно не задал HH_PERSIST_DIR.
         default_persist = ".linkedin_user" if platform in ("linkedin", "li") else ".hh_user"
@@ -76,6 +125,7 @@ class Config:
         return Config(
             platform=platform,
             linkedin_location=os.getenv("LINKEDIN_LOCATION", "").strip(),
+            linkedin_experience_levels=experience_levels or [],
             search_query=os.getenv("HH_SEARCH_QUERY", "python").strip(),
             region_ids=region_ids or [],
             remote_only=os.getenv("HH_REMOTE_ONLY", "false").lower() == "true",
@@ -89,6 +139,13 @@ class Config:
             resume_match=os.getenv("HH_RESUME_TITLE_MATCH", "Python разработчик").strip().lower(),
             fail_if_resume_not_found=os.getenv("HH_FAIL_IF_RESUME_NOT_FOUND", "true").lower() == "true",
             require_cover_letter=os.getenv("HH_REQUIRE_COVER_LETTER", "true").lower() == "true",
+            linkedin_headline_path=Path(
+                os.getenv("LINKEDIN_HEADLINE_PATH", "data/linkedin_headline.txt")
+            ),
+            linkedin_summary_path=Path(
+                os.getenv("LINKEDIN_SUMMARY_PATH", "data/linkedin_summary.txt")
+            ),
+            linkedin_city=os.getenv("LINKEDIN_CITY", "").strip(),
             max_pages=int(os.getenv("HH_MAX_PAGES", "100")),
             vacancies_csv=vacancies_csv,
             failed_vacancies_csv=failed_vacancies_csv,

@@ -42,6 +42,19 @@ class LinkedInClient:
     def __init__(self, cfg: Config):
         self.cfg = cfg
         Path(cfg.screenshots_dir).mkdir(parents=True, exist_ok=True)
+        # Тексты для полей формы Easy Apply (необязательны).
+        self.headline_text = self._read_optional_file(cfg.linkedin_headline_path)
+        self.summary_text = self._read_optional_file(cfg.linkedin_summary_path)
+
+    @staticmethod
+    def _read_optional_file(path: Path) -> str:
+        """Читает текстовый файл; возвращает пустую строку, если файла нет/он пуст."""
+        try:
+            if path and Path(path).exists():
+                return Path(path).read_text(encoding="utf-8").strip()
+        except Exception as e:
+            logger.debug(f"Не удалось прочитать {path}: {e}")
+        return ""
 
     # --------- Вспомогательное ---------
     @staticmethod
@@ -77,8 +90,20 @@ class LinkedInClient:
             "start": page_num * 25,
             "f_AL": "true",  # только Easy Apply
         }
-        if self.cfg.linkedin_location:
-            params["location"] = self.cfg.linkedin_location
+        # Уровень опыта (f_E): стажёр / молодой специалист / специалист и т.д.
+        # LinkedIn принимает несколько значений через запятую: f_E=1,2,3.
+        levels = self.cfg.linkedin_experience_levels or []
+        if levels:
+            params["f_E"] = ",".join(levels)
+        # Локация. Пусто = без фильтра (по всем странам). Спец-значения
+        # "worldwide"/"все"/"all"/"мир" принудительно ставят geoId «Весь мир»,
+        # чтобы LinkedIn не подставлял локацию из браузера (например, Турцию).
+        loc = (self.cfg.linkedin_location or "").strip()
+        if loc:
+            if loc.lower() in ("worldwide", "все", "all", "мир", "любая"):
+                params["geoId"] = "92000000"  # LinkedIn: Worldwide
+            else:
+                params["location"] = loc
         if self.cfg.remote_only:
             params["f_WT"] = "2"  # тип работы: удалённо
         return f"https://www.linkedin.com/jobs/search/?{urlencode(params)}"
@@ -179,17 +204,166 @@ class LinkedInClient:
             return False
         return any(marker in body for marker in S.ALREADY_APPLIED_TEXT)
 
-    def _fill_cover_letter_if_present(self, page: Page, cover_text: str) -> None:
-        if not cover_text:
+    def _fill_text_field(self, locator, value: str, field_name: str) -> bool:
+        """Безопасно заполняет одно текстовое поле, если оно видимо и пусто.
+
+        Возвращает True, если поле было заполнено.
+        """
+        if not value:
+            return False
+        try:
+            if not locator.count() or not self.is_visible(locator, timeout=600):
+                return False
+            field = locator.first
+            current = (field.input_value() or "").strip()
+            if current:
+                return False  # уже заполнено (профилем/черновиком) — не перетираем
+            field.click()
+            field.fill(value)
+            human_pause(self.cfg, 0.2, 0.6)
+            filled = (field.input_value() or "").strip()
+            if filled:
+                logger.info(f"LinkedIn: заполнено поле '{field_name}'.")
+                return True
+        except Exception as e:
+            logger.debug(f"Не удалось заполнить поле '{field_name}': {e}")
+        return False
+
+    def _classify_label(self, label_text: str) -> str | None:
+        """Сопоставляет текст лейбла полю (headline/summary/cover_letter) по ключевым словам."""
+        text = (label_text or "").lower()
+        if not text:
+            return None
+        # cover_letter проверяем раньше summary: у некоторых форм встречаются
+        # длинные подписи, чтобы не спутать сопроводительное письмо с "summary".
+        for key in ("cover_letter", "headline", "summary"):
+            for kw in S.FIELD_LABEL_KEYWORDS[key]:
+                if kw in text:
+                    return key
+        return None
+
+    def _label_text_for(self, page: Page, field) -> str:
+        """Достаёт текст лейбла для поля: по for=id, по aria-label, по placeholder."""
+        try:
+            fid = field.get_attribute("id") or ""
+            if fid:
+                lab = page.locator(f'label[for="{fid}"]')
+                if lab.count():
+                    t = (lab.first.inner_text() or "").strip()
+                    if t:
+                        return t
+        except Exception:
+            pass
+        try:
+            return (
+                field.get_attribute("aria-label")
+                or field.get_attribute("placeholder")
+                or ""
+            ).strip()
+        except Exception:
+            return ""
+
+    def _fill_known_text_fields(self, page: Page, cover_text: str) -> None:
+        """Заполняет Headline, Summary и Cover letter в текущем шаге Easy Apply.
+
+        Сначала пробуем прямые селекторы, затем — устойчивый обход по лейблам
+        (на случай обфусцированной разметки LinkedIn).
+        """
+        values = {
+            "headline": self.headline_text,
+            "summary": self.summary_text,
+            "cover_letter": cover_text,
+        }
+        filled: set[str] = set()
+
+        # 1) Быстрый путь: прямые селекторы.
+        direct = {
+            "headline": S.HEADLINE_INPUT,
+            "summary": S.SUMMARY_TEXTAREA,
+            "cover_letter": S.COVER_LETTER_TEXTAREA,
+        }
+        for key, selector in direct.items():
+            if values[key] and self._fill_text_field(
+                page.locator(selector), values[key], key
+            ):
+                filled.add(key)
+
+        # 2) Запасной путь: разбираем все текстовые поля формы по лейблам.
+        remaining = {k for k, v in values.items() if v and k not in filled}
+        if not remaining:
             return
-        ta = page.locator(S.COVER_LETTER_TEXTAREA)
-        if ta.count() and self.is_visible(ta, timeout=800):
+        try:
+            fields = page.locator(
+                'textarea, input[type="text"]:not([role="combobox"])'
+            )
+            count = fields.count()
+        except Exception:
+            return
+        for i in range(count):
+            if not remaining:
+                break
+            field = fields.nth(i)
+            key = self._classify_label(self._label_text_for(page, field))
+            if key in remaining and self._fill_text_field(
+                field, values[key], key
+            ):
+                filled.add(key)
+                remaining.discard(key)
+
+    def _fill_typeahead_location(self, page: Page, city: str) -> bool:
+        """Заполняет поле "Location (city)" — typeahead с подсказками.
+
+        Печатает город посимвольно (это запускает автодополнение) и выбирает
+        первый подходящий вариант из выпадающего списка. Без выбора варианта
+        LinkedIn считает значение невалидным ("Please enter a valid answer").
+        Возвращает True, если вариант выбран.
+        """
+        if not city:
+            return False
+        loc = page.locator(S.LOCATION_TYPEAHEAD)
+        if not loc.count() or not self.is_visible(loc, timeout=600):
+            return False
+        field = loc.first
+        try:
+            # Если значение уже выбрано (есть текст и список свёрнут) — не трогаем.
+            current = (field.input_value() or "").strip()
+            expanded = (field.get_attribute("aria-expanded") or "").lower() == "true"
+            if current and not expanded:
+                return False
+
+            field.click()
+            # Очищаем возможный частичный/невалидный ввод.
             try:
-                if not (ta.first.input_value() or "").strip():
-                    ta.first.fill(cover_text)
-                    logger.info("LinkedIn: вставлено сопроводительное письмо.")
-            except Exception as e:
-                logger.debug(f"Не удалось заполнить сопроводительное: {e}")
+                field.fill("")
+            except Exception:
+                pass
+            human_pause(self.cfg, 0.2, 0.5)
+
+            # Печать посимвольно (fill() не вызывает поиск подсказок).
+            try:
+                field.press_sequentially(city, delay=120)
+            except Exception:
+                field.type(city, delay=120)  # совместимость со старым Playwright
+
+            page.wait_for_timeout(1600)  # ждём выпадающий список
+
+            options = page.locator(S.TYPEAHEAD_OPTION)
+            if options.count() and self.is_visible(options, timeout=1800):
+                options.first.click()
+                page.wait_for_timeout(500)
+                logger.info(f"LinkedIn: выбран город из подсказок: {city}")
+                return True
+
+            # Запасной путь: выбор первого варианта с клавиатуры.
+            field.press("ArrowDown")
+            page.wait_for_timeout(400)
+            field.press("Enter")
+            page.wait_for_timeout(400)
+            logger.info(f"LinkedIn: город выбран с клавиатуры: {city}")
+            return True
+        except Exception as e:
+            logger.debug(f"Не удалось заполнить поле локации: {e}")
+        return False
 
     def _uncheck_follow_company(self, page: Page) -> None:
         cb = page.locator(S.FOLLOW_COMPANY_CHECKBOX)
@@ -234,7 +408,8 @@ class LinkedInClient:
 
         for step in range(MAX_EASY_APPLY_STEPS):
             page.wait_for_timeout(900)
-            self._fill_cover_letter_if_present(page, cover_text)
+            self._fill_known_text_fields(page, cover_text)
+            self._fill_typeahead_location(page, self.cfg.linkedin_city)
             self._uncheck_follow_company(page)
 
             submit = page.locator(S.SUBMIT_BUTTON)

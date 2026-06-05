@@ -1,0 +1,6 @@
+Mobile-разработчик с опытом 4+ лет: Flutter как основной стек и нативный Android (Kotlin) для платформенной логики и интеграций. Работаю с Clean Architecture, BLoC, REST / WebSocket / GraphQL, Firebase, CI/CD (GitLab, GitHub Actions), unit и widget тестами.
+
+Ключевой проект — маркетплейс LIDLE на Flutter: 39 REST endpoints, 8+ бизнес-доменов на BLoC, JWT-авторизация, офлайн-кеш, встроенный мессенджер, работа с QR.
+
+Портфолио: https://portfolio-eight-rouge-59.vercel.app/
+GitHub: https://github.com/Zakirov-Yuriy

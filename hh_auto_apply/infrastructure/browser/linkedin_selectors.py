@@ -93,6 +93,50 @@ class LinkedInSelectors:
         'textarea[aria-label*="cover" i], '
         'textarea[aria-label*="сопроводительн" i]'
     )
+    # Поле "Headline" (заголовок) — обычно однострочный input.
+    HEADLINE_INPUT = (
+        'input[id*="headline" i], '
+        'input[name*="headline" i], '
+        'input[aria-label*="headline" i], '
+        'input[aria-label*="заголовок" i]'
+    )
+    # Поле "Summary" (о себе / краткая информация) — обычно многострочный textarea.
+    SUMMARY_TEXTAREA = (
+        'textarea[id*="summary" i], '
+        'textarea[name*="summary" i], '
+        'textarea[aria-label*="summary" i], '
+        'textarea[aria-label*="о себе" i]'
+    )
+
+    # Поле "Location (city)" — typeahead с автодополнением (GEO-LOCATION).
+    # Нельзя заполнять через fill(): нужно печатать и выбирать вариант из списка.
+    LOCATION_TYPEAHEAD = (
+        'input[id*="GEO-LOCATION"], '
+        'input[id*="location" i][role="combobox"], '
+        'input[role="combobox"][aria-autocomplete="list"][id*="location" i]'
+    )
+    # Подсказки typeahead (выпадающий список вариантов).
+    TYPEAHEAD_OPTION = (
+        'div[role="option"], '
+        '[role="listbox"] [role="option"], '
+        '.basic-typeahead__triggered-content div[role="option"], '
+        '.search-typeahead-v2__hit'
+    )
+
+    # Распознавание полей по тексту лейбла (запасной, устойчивый к смене вёрстки путь).
+    # Ключи — внутренние имена полей; значения — подстроки лейбла в нижнем регистре
+    # (английские и русские варианты). Используются, если жёсткие селекторы выше
+    # не сработали из-за обфусцированной разметки LinkedIn.
+    FIELD_LABEL_KEYWORDS = {
+        "headline": ["headline", "заголовок"],
+        "summary": ["summary", "о себе", "краткая информация", "about you", "обо мне"],
+        "cover_letter": [
+            "cover letter",
+            "cover",
+            "сопроводительн",
+            "мотивацион",
+        ],
+    }
     # Чекбокс "отслеживать компанию" (снимаем, если стоит).
     FOLLOW_COMPANY_CHECKBOX = (
         'input#follow-company-checkbox, '
