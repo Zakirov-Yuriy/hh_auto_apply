@@ -36,7 +36,7 @@ class Selectors:
     COVER_LETTER_TOGGLE = '[data-qa="vacancy-response-letter-toggle"]'
     COVER_LETTER_TEXTAREA = 'textarea[data-qa="vacancy-response-letter-input"]'
     COVER_LETTER_TEXTAREA_PLACEHOLDER = 'textarea[placeholder*="сопроводительное"]'
-    COVER_LETTER_TEXTAREA_GENERIC = 'textarea'
+    COVER_LETTER_TEXTAREA_GENERIC = 'textarea:not([name^="task_"])'
 
     CONSENT_CHECKBOX_AGREEMENT = 'input[type="checkbox"][name*="agreement"]'
     CONSENT_CHECKBOX_QA = 'input[type="checkbox"][data-qa*="consent"]'

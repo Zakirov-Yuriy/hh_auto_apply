@@ -119,7 +119,23 @@ class HHClient:
             FileNotFoundError: Если ни один файл промпта не найден
         """
         search_query = self.cfg.search_query.lower()
-        
+
+        # Приоритет 1: явно заданный AI_PROMPT_PATH из .env
+        explicit = (self.cfg.ai_prompt_path or "").strip()
+        if explicit:
+            p = Path(explicit)
+            # если указано просто имя файла — ищем его в каталоге промптов
+            if not p.is_absolute() and p.parent == Path("."):
+                p = self.cfg.ai_prompts_dir / p
+            if p.exists():
+                logger.info(f"Использую промпт из AI_PROMPT_PATH: {p}")
+                return p
+            logger.warning(
+                f"AI_PROMPT_PATH указывает на несуществующий файл: {p}. "
+                f"Откатываюсь на автовыбор по search_query."
+            )
+
+        # Приоритет 2: автовыбор по типу поиска
         # Пытаемся найти специфичный для типа поиска файл
         if "flutter" in search_query:
             prompt_file = self.cfg.ai_prompts_dir / "prompt_flutter.txt"
@@ -461,54 +477,89 @@ class HHClient:
             logger.warning("Маска резюме пуста, пропускаю выбор.")
             return False
 
-        # Пробуем несколько селекторов — hh может рендерить по-разному
-        selectors_to_try = [
-            Selectors.RESUME_SELECT_ITEM,
-            Selectors.RESUME_SELECT_ITEM_IN_GROUP,
-            Selectors.RESUME_GENERIC_QA,
-        ]
+        def norm(s: str) -> str:
+            s = (s or "").lower()
+            for ch in ("|", "\u2022", "\u00b7", "\u2014", "\u2013", "-", "/", ",", "\n", "\t"):
+                s = s.replace(ch, " ")
+            return " ".join(s.split())
 
-        cards = None
-        n = 0
-        for sel in selectors_to_try:
-            loc = page.locator(sel)
-            cnt = loc.count()
-            if cnt > 0:
-                cards = loc
-                n = cnt
-                logger.info(f'Селектор резюме "{sel}" нашёл карточек: {cnt}')
-                break
+        mask_norm = norm(mask)
+        mask_tokens = [t for t in mask_norm.split() if len(t) > 2]
 
-        if not cards or n == 0:
+        rows = []  # (text, radio | None, container)
+
+        # 1) Основной путь: radio-кнопки выбора резюме
+        radios = page.locator('input[type="radio"]')
+        rcount = radios.count()
+        if rcount > 0:
+            logger.info(f"Найдено radio-кнопок: {rcount}")
+            for i in range(min(rcount, 20)):
+                radio = radios.nth(i)
+                container = radio.locator(
+                    'xpath=ancestor::label[1] | ancestor::*[@data-qa="resume-select_item"][1]'
+                ).first
+                try:
+                    if container.count() == 0:
+                        container = radio.locator("xpath=..").first
+                    text = (container.inner_text() or "").strip()
+                except Exception:
+                    text = ""
+                rows.append((text, radio, container))
+
+        # 2) Fallback: контейнеры с заголовком резюме
+        if not rows:
+            for sel in ('[data-qa="resume-select_item"]', '[data-qa="resume-title"]'):
+                loc = page.locator(sel)
+                c = loc.count()
+                if c > 0:
+                    logger.info(f'Селектор "{sel}" нашёл карточек: {c}')
+                    for i in range(min(c, 20)):
+                        el = loc.nth(i)
+                        try:
+                            text = (el.inner_text() or "").strip()
+                        except Exception:
+                            text = ""
+                        rows.append((text, None, el))
+                    break
+
+        if not rows:
             logger.warning("На форме отклика не найдено ни одной карточки резюме.")
             return False
 
-        n = min(n, 20)
-        logger.info(f'Ищу резюме по маске "{mask}" среди {n} карточек:')
+        logger.info(f'Ищу резюме по маске "{mask}" среди {len(rows)} карточек:')
 
-        for i in range(n):
-            card = cards.nth(i)
+        best_i, best_score = -1, 0.0
+        for i, (text, radio, container) in enumerate(rows):
+            tnorm = norm(text)
+            logger.info(f'  #{i}: "{tnorm[:150]}"')
+
+            if mask_norm and mask_norm in tnorm:
+                score = 1.0
+            elif mask_tokens:
+                hit = sum(1 for tok in mask_tokens if tok in tnorm)
+                score = hit / len(mask_tokens)
+            else:
+                score = 0.0
+
+            if score > best_score:
+                best_score, best_i = score, i
+
+        THRESHOLD = 0.6  # достаточно совпадения ~60% значимых слов
+        if best_i >= 0 and best_score >= THRESHOLD:
+            text, radio, container = rows[best_i]
             try:
-                full_text = (card.inner_text() or "").strip().lower()
-                # Берём первые 150 символов чтобы лог не был портянкой
-                preview = full_text[:150].replace("\n", " | ")
-                logger.info(f'  #{i}: "{preview}"')
-
-                if mask in full_text:
-                    radio = card.locator('input[type="radio"]').first
-                    if radio.count() > 0 and radio.is_visible():
-                        radio.check()
-                    else:
-                        card.click()
-                    logger.info(f'  >>> ВЫБРАНА карточка #{i} (маска "{mask}" найдена)')
-                    return True
+                if container is not None and container.count() > 0:
+                    container.click()
+                elif radio is not None and radio.count() > 0:
+                    radio.check(force=True)
+                logger.info(f'  >>> ВЫБРАНА карточка #{best_i} (совпадение {best_score:.0%})')
+                return True
             except Exception as e:
-                logger.debug(f"  ошибка на карточке #{i}: {e}")
-                continue
+                logger.warning(f"Не удалось кликнуть карточку #{best_i}: {e}")
 
         logger.warning(
-            f'Не найдено резюме с маской "{mask}" ни в одной из {n} карточек. '
-            f'Проверь, что маска совпадает с тем, что видно в логе выше.'
+            f'Не найдено резюме с маской "{mask}". Лучшее совпадение #{best_i} = {best_score:.0%}. '
+            f'Попробуй короткую маску в .env, например HH_RESUME_TITLE_MATCH="Python Backend Developer".'
         )
         return False
 
@@ -580,6 +631,10 @@ class HHClient:
                 ta = page.locator(sel).first
                 try:
                     if not self.is_visible(ta, timeout=900):
+                        continue
+                    # Защита: не заполняем письмом поля кастомных вопросов (task_*)
+                    ta_name = (ta.get_attribute("name") or "")
+                    if ta_name.startswith("task_"):
                         continue
                     ta.click()
                     page.keyboard.press("Control+A")
@@ -865,7 +920,25 @@ class HHClient:
         for field_name, question_text in questions.items():
             try:
                 logger.debug(f"Генерирую ответ на вопрос в {field_name}...")
-                
+
+                # Зарплатный вопрос определяем по широкому набору формулировок.
+                # Если это он — подставляем сумму напрямую, без обращения к ИИ
+                # (модель часто пишет лишний текст вместо числа).
+                q_low = question_text.lower()
+                salary_markers = (
+                    "зарплат", "ожидани", "gross", "net", "сумм", "на руки",
+                    " руки", "отталкива", "оклад", "доход", "вилк", "зп",
+                    "з/п", "сколько", "желаем", "от какой", "rub", "руб",
+                )
+                if any(m in q_low for m in salary_markers):
+                    salary_amount = (self.cfg.salary_expectation
+                                     or resume_context.get("salary", "130000"))
+                    answers[field_name] = salary_amount
+                    logger.info(
+                        f"Зарплатный вопрос ({field_name}): подставляю сумму '{salary_amount}'"
+                    )
+                    continue
+
                 # Формируем промпт на основе типа вопроса
                 if "зарплат" in question_text.lower() or "ожидани" in question_text.lower() or "gross" in question_text.lower() or "net" in question_text.lower():
                     # Специальный ответ для вопроса о зарплате - ОЧЕНЬ КРАТКИЙ

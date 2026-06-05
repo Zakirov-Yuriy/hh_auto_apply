@@ -87,6 +87,8 @@ class Config:
     use_ai_cover_letter: bool = False
     openrouter_api_keys: List[str] | None = None
     ai_prompts_dir: Path = Path("data")  # Директория с файлами промптов
+    ai_prompt_path: str = ""  # Явный файл промпта (имеет приоритет над автовыбором)
+    salary_expectation: str = "130000"  # Сумма для зарплатных вопросов (на руки)
     ai_model: str = "openai/gpt-oss-120b:free"
     # HH API настройки для получения структурированных данных вакансии
     use_hh_api_first: bool = True
@@ -152,6 +154,8 @@ class Config:
             use_ai_cover_letter=os.getenv("HH_USE_AI_COVER_LETTER", "false").lower() == "true",
             openrouter_api_keys=openrouter_api_keys or [],
             ai_prompts_dir=Path(os.getenv("AI_PROMPTS_DIR", "data")),
+            ai_prompt_path=os.getenv("AI_PROMPT_PATH", "").strip().strip('"').strip("'"),
+            salary_expectation=os.getenv("HH_SALARY_EXPECTATION", "130000").strip().strip('"').strip("'"),
             ai_model=os.getenv("AI_MODEL", "openai/gpt-oss-120b:free").strip(),
             use_hh_api_first=os.getenv("HH_USE_API_FIRST", "true").lower() == "true",
             hh_api_user_agent=os.getenv(
