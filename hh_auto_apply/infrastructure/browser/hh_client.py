@@ -732,115 +732,123 @@ class HHClient:
         self.make_shot(page, "submit_fail")
         return False
 
-    def _detect_custom_questions(self, page: Page) -> Dict[str, str]:
+    def _detect_custom_questions(self, page: Page) -> List[Dict]:
         """Обнаруживает кастомные вопросы на форме отклика.
-        
+
+        Читает все блоки [data-qa="task-body"]. Для каждого определяет:
+        - текст вопроса (data-qa="task-question")
+        - тип поля: textarea / checkbox / radio
+        - варианты ответов с их value (для checkbox / radio)
+        - name поля
+
         Returns:
-            Словарь с ключами field_name и значениями question_text.
-            Пример: {"task_179017369_text": "Укажите уровень зарплатных ожиданий..."}
+            Список словарей вида:
+            {
+                "question": "Есть ли у вас опыт?",
+                "type": "checkbox",          # "textarea" | "checkbox" | "radio"
+                "field_name": "task_123",    # для textarea — с суффиксом _text
+                "options": [                 # только для checkbox / radio
+                    {"value": "334283068", "label": "Да"},
+                    {"value": "334283069", "label": "Нет"},
+                ],
+            }
         """
-        questions = {}
+        result = []
         try:
-            # Ищем все textarea с pattern task_*_text
-            textareas = page.locator('textarea[name^="task_"]').all()
-            logger.debug(f"Обнаружено {len(textareas)} кастомных textarea полей")
-            
-            for textarea in textareas:
-                field_name = textarea.get_attribute("name") or ""
-                if not field_name:
-                    continue
-                
-                # Ищем связанный label или описание вопроса
+            task_bodies = page.locator('[data-qa="task-body"]')
+            count = task_bodies.count()
+            logger.debug(f"Найдено блоков task-body: {count}")
+
+            for i in range(count):
+                block = task_bodies.nth(i)
+
+                # --- Текст вопроса ---
                 question_text = ""
-                
                 try:
-                    # Метод 1: Ищем ближайший предыдущий div[data-qa="task-question"] 
-                    # (вопрос обычно находится ДО textarea)
-                    # Берём ТОЛЬКО первый параграф с вопросом, без "Спасибо!" и других текстов
-                    # Используем preceding:: вместо preceding-sibling:: для поиска в любых предыдущих элементах
-                    # (вопрос может быть обёрнут в container div)
-                    task_question_div = textarea.locator("xpath=preceding::div[@data-qa='task-question'][1]")
-                    if task_question_div.count() > 0:
-                        # Получаем первый параграф с вопросом
-                        first_p = task_question_div.first.locator('p').first
-                        if first_p:
-                            question_text = (first_p.inner_text() or "").strip()
-                        # Если нет параграфов, берём весь текст div
-                        if not question_text:
-                            question_text = (task_question_div.first.inner_text() or "").strip()
+                    q_div = block.locator('[data-qa="task-question"]').first
+                    question_text = (q_div.inner_text() or "").strip()
                 except Exception:
                     pass
-                
-                # Метод 2: Если не нашли через preceding-sibling, ищем в ближайшем родителе
                 if not question_text:
-                    try:
-                        parent_container = textarea.locator("xpath=ancestor::div[@class][1]")
-                        if parent_container:
-                            task_q = parent_container.locator('div[data-qa="task-question"]')
-                            if task_q.count() > 0:
-                                first_p = task_q.first.locator('p').first
-                                if first_p:
-                                    question_text = (first_p.inner_text() or "").strip()
-                                if not question_text:
-                                    question_text = (task_q.first.inner_text() or "").strip()
-                    except Exception:
-                        pass
-                
-                # Метод 2: Попробуем найти label с for="field_name"
-                if not question_text:
-                    try:
-                        label_loc = page.locator(f'label[for="{field_name}"]')
-                        if label_loc.count() > 0:
-                            question_text = (label_loc.first.inner_text() or "").strip()
-                    except Exception:
-                        pass
-                
-                # Метод 3: Если не нашли label, ищем в ближайшем div родителе с text
-                if not question_text:
-                    try:
-                        # Ищем ближайший родительский div и текст внутри
-                        parent = textarea.locator("xpath=ancestor::div[1]")
-                        if parent:
-                            # Пытаемся найти любой текстовый элемент перед textarea
-                            text_elements = parent.locator("xpath=.//label | .//div[@class*='text'] | .//span[@class*='question'] | .//p")
-                            if text_elements.count() > 0:
-                                # Берём первый текстовый элемент
-                                question_text = (text_elements.first.inner_text() or "").strip()
-                    except Exception:
-                        pass
-                
-                # Метод 4: Если ещё не нашли, ищем fieldset или form-group
-                if not question_text:
-                    try:
-                        fieldset = textarea.locator("xpath=ancestor::fieldset[1] | ancestor::div[@class*='field'] | ancestor::div[@class*='form']")
-                        if fieldset:
-                            # Ищем первую строку/заголовок в этом контейнере
-                            legend = fieldset.locator("xpath=.//legend | .//h1 | .//h2 | .//h3 | .//h4 | .//label")
-                            if legend.count() > 0:
-                                question_text = (legend.first.inner_text() or "").strip()
-                    except Exception:
-                        pass
-                
-                # Метод 5: Если всё ещё ничего, ищем в предыдущем sibling элементе
-                if not question_text:
-                    try:
-                        prev_elem = textarea.locator("xpath=preceding-sibling::*[1]")
-                        if prev_elem.count() > 0:
-                            question_text = (prev_elem.first.inner_text() or "").strip()
-                    except Exception:
-                        pass
-                
-                if question_text and len(question_text.strip()) > 5:
-                    questions[field_name] = question_text
-                    logger.debug(f"Найден вопрос: {field_name} -> {question_text[:100]}...")
-                else:
-                    logger.debug(f"Вопрос для {field_name} не найден, будет использован пустой контекст")
-                    questions[field_name] = f"Ответьте на вопрос в поле {field_name}"
-        
+                    logger.debug(f"Блок #{i}: вопрос не найден, пропускаем")
+                    continue
+
+                # --- Определяем тип поля ---
+                # 1) Textarea
+                textareas = block.locator('textarea[name^="task_"]')
+                if textareas.count() > 0:
+                    field_name = (textareas.first.get_attribute("name") or "").strip()
+                    result.append({
+                        "question": question_text,
+                        "type": "textarea",
+                        "field_name": field_name,
+                        "options": [],
+                    })
+                    logger.debug(f"Блок #{i} [textarea] '{question_text[:60]}' -> {field_name}")
+                    continue
+
+                # 2) Checkbox
+                checkboxes = block.locator('input[type="checkbox"][name^="task_"]')
+                if checkboxes.count() > 0:
+                    options = []
+                    field_name = ""
+                    for j in range(checkboxes.count()):
+                        cb = checkboxes.nth(j)
+                        val = (cb.get_attribute("value") or "").strip()
+                        cb_name = (cb.get_attribute("name") or "").strip()
+                        if not field_name and cb_name:
+                            field_name = cb_name
+                        # Ищем label для этого checkbox
+                        label_text = ""
+                        try:
+                            cell = cb.locator("xpath=ancestor::label[1]")
+                            if cell.count() > 0:
+                                label_text = (cell.first.locator('[data-qa="cell-text-content"]').first.inner_text() or "").strip()
+                        except Exception:
+                            pass
+                        if val and val != "open":
+                            options.append({"value": val, "label": label_text})
+                    result.append({
+                        "question": question_text,
+                        "type": "checkbox",
+                        "field_name": field_name,
+                        "options": options,
+                    })
+                    logger.debug(f"Блок #{i} [checkbox] '{question_text[:60]}' options={options}")
+                    continue
+
+                # 3) Radio
+                radios = block.locator('input[type="radio"][name^="task_"]')
+                if radios.count() > 0:
+                    options = []
+                    field_name = ""
+                    for j in range(radios.count()):
+                        rb = radios.nth(j)
+                        val = (rb.get_attribute("value") or "").strip()
+                        rb_name = (rb.get_attribute("name") or "").strip()
+                        if not field_name and rb_name:
+                            field_name = rb_name
+                        label_text = ""
+                        try:
+                            cell = rb.locator("xpath=ancestor::label[1]")
+                            if cell.count() > 0:
+                                label_text = (cell.first.locator('[data-qa="cell-text-content"]').first.inner_text() or "").strip()
+                        except Exception:
+                            pass
+                        if val and val != "open":
+                            options.append({"value": val, "label": label_text})
+                    result.append({
+                        "question": question_text,
+                        "type": "radio",
+                        "field_name": field_name,
+                        "options": options,
+                    })
+                    logger.debug(f"Блок #{i} [radio] '{question_text[:60]}' options={options}")
+
         except Exception as e:
             logger.warning(f"Ошибка при обнаружении кастомных вопросов: {e}")
-        
-        return questions
+
+        return result
 
     def _extract_resume_context(self, page: Page) -> Dict[str, str]:
         """Извлекает информацию из резюме, видимого на странице.
@@ -895,207 +903,264 @@ class HHClient:
         return context
 
     def _generate_answers_for_custom_questions(
-        self, 
-        questions: Dict[str, str], 
+        self,
+        questions: List[Dict],
         resume_context: Dict[str, str],
         vacancy_title: str
-    ) -> Dict[str, str]:
+    ) -> List[Dict]:
         """Генерирует ответы на кастомные вопросы используя OpenRouter API.
-        
+
+        Для каждого вопроса отправляет в AI структурированный запрос,
+        включающий текст вопроса, тип поля и варианты ответов (для checkbox/radio).
+        AI возвращает JSON с выбранными вариантами или текстом.
+
         Args:
-            questions: Словарь field_name -> question_text
+            questions: Список словарей от _detect_custom_questions
             resume_context: Информация о резюме (должность, зарплата, навыки)
             vacancy_title: Название вакансии
-        
+
         Returns:
-            Словарь field_name -> generated_answer
+            Тот же список словарей, дополненный ключом "answer":
+            - для textarea: {"answer": "текст ответа"}
+            - для checkbox: {"answer": ["334283068", "334283069"]}  (список value)
+            - для radio: {"answer": "334283074"}  (один value)
         """
         if not self.key_rotator:
             logger.warning("Ротатор ключей не инициализирован. Невозможно генерировать ответы.")
-            return {}
-        
-        answers = {}
-        url = "https://openrouter.ai/api/v1/chat/completions"
-        
-        for field_name, question_text in questions.items():
-            try:
-                logger.debug(f"Генерирую ответ на вопрос в {field_name}...")
+            return questions
 
-                # Зарплатный вопрос определяем по широкому набору формулировок.
-                # Если это он — подставляем сумму напрямую, без обращения к ИИ
-                # (модель часто пишет лишний текст вместо числа).
-                q_low = question_text.lower()
+        api_url = "https://openrouter.ai/api/v1/chat/completions"
+        result_questions = []
+
+        for q in questions:
+            q_copy = dict(q)
+            question_text = q["question"]
+            field_type = q["type"]
+            options = q.get("options", [])
+            q_low = question_text.lower()
+
+            try:
+                # --- Быстрый путь для зарплатного вопроса (только textarea) ---
                 salary_markers = (
                     "зарплат", "ожидани", "gross", "net", "сумм", "на руки",
                     " руки", "отталкива", "оклад", "доход", "вилк", "зп",
                     "з/п", "сколько", "желаем", "от какой", "rub", "руб",
                 )
-                if any(m in q_low for m in salary_markers):
+                if field_type == "textarea" and any(m in q_low for m in salary_markers):
                     salary_amount = (self.cfg.salary_expectation
                                      or resume_context.get("salary", "130000"))
-                    answers[field_name] = salary_amount
-                    logger.info(
-                        f"Зарплатный вопрос ({field_name}): подставляю сумму '{salary_amount}'"
-                    )
+                    q_copy["answer"] = salary_amount
+                    logger.info(f"Зарплатный вопрос: подставляю '{salary_amount}'")
+                    result_questions.append(q_copy)
                     continue
 
-                # Формируем промпт на основе типа вопроса
-                if "зарплат" in question_text.lower() or "ожидани" in question_text.lower() or "gross" in question_text.lower() or "net" in question_text.lower():
-                    # Специальный ответ для вопроса о зарплате - ОЧЕНЬ КРАТКИЙ
-                    salary_amount = resume_context.get('salary', '130000')
-                    answer_prompt = f"""Ты - кандидат. Ответь ОЧЕНЬ КРАТКО на вопрос о зарплате.
+                # --- Формируем промпт для AI ---
+                resume_info = (
+                    f"Должность: {resume_context.get('title')}\n"
+                    f"Опыт: {resume_context.get('experience_years')} лет\n"
+                    f"Навыки: {resume_context.get('skills')}\n"
+                    f"Зарплатные ожидания: {resume_context.get('salary')} руб.\n"
+                    f"Образование: {resume_context.get('education')}"
+                )
 
-Твои ожидания: {salary_amount} рублей на руки (Net)
+                if field_type == "textarea":
+                    answer_prompt = (
+                        f"Ты — соискатель работы. Отвечай от первого лица.\n\n"
+                        f"Информация о кандидате:\n{resume_info}\n\n"
+                        f"Вакансия: {vacancy_title}\n\n"
+                        f"Вопрос работодателя:\n{question_text}\n\n"
+                        f"Напиши краткий профессиональный ответ (2-4 предложения) от первого лица.\n"
+                        f"Верни ТОЛЬКО текст ответа, без пояснений и кавычек."
+                    )
+                    response_format = "text"
+                    max_tokens = 200
 
-Вопрос: {question_text}
+                elif field_type in ("checkbox", "radio"):
+                    options_str = "\n".join(
+                        f'  value="{o["value"]}" label="{o["label"]}"' 
+                        for o in options
+                    )
+                    if field_type == "checkbox":
+                        task_hint = (
+                            "Можно выбрать один или несколько вариантов.\n"
+                            'Верни JSON: {"values": ["value1", "value2"]} — массив выбранных value.\n'
+                            'Если ни один не подходит, верни {"values": []}.'
+                        )
+                    else:
+                        task_hint = (
+                            "Выбери ровно один вариант.\n"
+                            'Верни JSON: {"value": "value1"} — один выбранный value.\n'
+                            "Выбери наиболее подходящий вариант обязательно."
+                        )
+                    answer_prompt = (
+                        f"Ты — соискатель работы.\n\n"
+                        f"Информация о кандидате:\n{resume_info}\n\n"
+                        f"Вакансия: {vacancy_title}\n\n"
+                        f"Вопрос работодателя (тип: {field_type}):\n{question_text}\n\n"
+                        f"Доступные варианты ответа:\n{options_str}\n\n"
+                        f"{task_hint}\n"
+                        f"Верни ТОЛЬКО валидный JSON, без пояснений."
+                    )
+                    response_format = "json"
+                    max_tokens = 80
 
-Напиши ответ в одну-две строки максимум. Пример формата: "от 130000 рублей на руки" или "130000 Net (после налогов)"
-
-ТВОЙ КРАТКИЙ ОТВЕТ:"""
-                    
-                elif "позиц" in question_text.lower() or "интерес" in question_text.lower() or "компани" in question_text.lower():
-                    # Ответ на вопрос о мотивации - РАЗВЕРНУТЫЙ
-                    answer_prompt = f"""Ты - соискатель работы. Ответь ОТ ПЕРВОГО ЛИЦА на вопрос о мотивации.
-
-Твоя информация:
-- Должность/опыт: {resume_context.get('title')}
-- Опыт: {resume_context.get('experience_years')} лет
-- Навыки: {resume_context.get('skills')}
-- Вакансия: {vacancy_title}
-
-Вопрос: {question_text}
-
-Напиши ПОЛНЫЙ, профессиональный ответ (3-5 предложений). Покажи:
-1. Почему тебе интересна именно эта позиция
-2. Как твои навыки соответствуют требованиям
-3. Почему компания привлекает тебя
-
-ОТВЕТ (только текст, без пояснений):"""
-                    
                 else:
-                    # Общий ответ для других вопросов
-                    answer_prompt = f"""Ты - соискатель работы. Отвечай ОТ ПЕРВОГО ЛИЦА от себя как кандидат.
+                    result_questions.append(q_copy)
+                    continue
 
-Твоя информация:
-- Должность: {resume_context.get('title')}
-- Опыт: {resume_context.get('experience_years')} лет
-- Навыки: {resume_context.get('skills')}
-- Образование: {resume_context.get('education')}
-- Вакансия, на которую ты откликаешься: {vacancy_title}
-
-Вопрос работодателя:
-{question_text}
-
-Напиши естественный, профессиональный ответ от первого лица (я, мне, мой, мои).
-ОТВЕТ (только текст, без пояснений):"""
-                
+                # --- Запрос к API ---
                 data = {
                     "model": self.cfg.ai_model,
-                    "messages": [
-                        {"role": "user", "content": answer_prompt}
-                    ],
-                    "max_tokens": 150,
-                    "temperature": 0.7,
+                    "messages": [{"role": "user", "content": answer_prompt}],
+                    "max_tokens": max_tokens,
+                    "temperature": 0.3,
                 }
-                
-                # Попытаемся использовать текущий ключ, и если ошибка, перейдём на следующий
+
                 max_attempts = len(self.key_rotator.api_keys) if self.key_rotator.has_multiple_keys() else 1
-                
+                raw_answer = None
+
                 for attempt in range(max_attempts):
                     try:
                         current_key = self.key_rotator.get_current_key()
-                        masked_key = current_key[:20] + "***" if len(current_key) > 20 else "***"
-                        
                         headers = {
                             "Authorization": f"Bearer {current_key}",
                             "Content-Type": "application/json",
                             "HTTP-Referer": "https://hh.ru",
                             "X-Title": "HH Auto Apply Bot",
                         }
-                        
-                        logger.debug(f"OpenRouter запрос для {field_name} (ключ: {masked_key}...)")
-                        response = requests.post(url, headers=headers, json=data, timeout=30)
+                        response = requests.post(api_url, headers=headers, json=data, timeout=30)
                         response.raise_for_status()
-                        
-                        result = response.json()
-                        answer_text = result["choices"][0]["message"]["content"].strip()
-                        answers[field_name] = answer_text
-                        logger.info(f"Ответ на вопрос {field_name} сгенерирован: {answer_text[:80]}...")
+                        raw_answer = response.json()["choices"][0]["message"]["content"].strip()
                         break
-                        
                     except requests.exceptions.RequestException as e:
-                        error_msg = str(e)
-                        if hasattr(e, 'response') and e.response is not None:
-                            error_msg += f" | Response: {e.response.text[:200]}"
-                        logger.warning(f"Ошибка генерации ответа (попытка {attempt + 1}/{max_attempts}): {error_msg}")
-                        
-                        # Если есть другие ключи, переключимся на следующий
+                        logger.warning(f"Ошибка API (попытка {attempt + 1}): {e}")
                         if self.key_rotator.has_multiple_keys() and attempt < max_attempts - 1:
                             try:
                                 self.key_rotator.rotate_to_next()
-                                continue
                             except ValueError:
-                                logger.error("Все API ключи исчерпаны для этого вопроса")
                                 break
-                        else:
-                            logger.error(f"Не удалось сгенерировать ответ для {field_name}")
-                            break
-                    
                     except (KeyError, IndexError) as e:
                         logger.error(f"Ошибка парсинга ответа API: {e}")
                         break
-                
-            except Exception as e:
-                logger.warning(f"Ошибка при генерации ответа на вопрос {field_name}: {e}")
-                continue
-        
-        return answers
 
-    def _fill_custom_questions(self, page: Page, answers: Dict[str, str]) -> bool:
+                if raw_answer is None:
+                    result_questions.append(q_copy)
+                    continue
+
+                # --- Разбираем ответ в зависимости от типа ---
+                if response_format == "text":
+                    q_copy["answer"] = raw_answer
+                    logger.info(f"[textarea] '{question_text[:50]}' -> '{raw_answer[:60]}'")
+
+                else:
+                    clean_json = raw_answer.replace("```json", "").replace("```", "").strip()
+                    try:
+                        parsed = json.loads(clean_json)
+                        if field_type == "radio":
+                            q_copy["answer"] = str(parsed.get("value", ""))
+                            logger.info(f"[radio] '{question_text[:50]}' -> value='{q_copy['answer']}'")
+                        else:
+                            vals = parsed.get("values", [])
+                            q_copy["answer"] = [str(v) for v in vals]
+                            logger.info(f"[checkbox] '{question_text[:50]}' -> values={q_copy['answer']}")
+                    except json.JSONDecodeError as e:
+                        logger.warning(f"Не удалось распарсить JSON ответ: '{clean_json}' ({e})")
+                        q_copy["answer"] = [] if field_type == "checkbox" else ""
+
+            except Exception as e:
+                logger.warning(f"Ошибка при генерации ответа на вопрос '{question_text[:50]}': {e}")
+
+            result_questions.append(q_copy)
+
+        return result_questions
+
+    def _fill_custom_questions(self, page: Page, questions_with_answers: List[Dict]) -> bool:
         """Заполняет кастомные поля формы сгенерированными ответами.
-        
+
+        Поддерживает три типа полей:
+        - textarea: заполняет текстом
+        - checkbox: ставит галочки на выбранных вариантах
+        - radio: выбирает один вариант
+
         Args:
             page: Playwright Page объект
-            answers: Словарь field_name -> answer_text
-        
+            questions_with_answers: Список словарей с ключом "answer"
+
         Returns:
-            True если хотя бы одно поле успешно заполнено, False иначе
+            True если хотя бы одно поле успешно обработано, False иначе
         """
-        if not answers:
+        if not questions_with_answers:
             logger.debug("Нет ответов для заполнения кастомных полей")
-            return True  # Успех, если нет вопросов
-        
+            return True
+
         filled_count = 0
-        
-        for field_name, answer_text in answers.items():
-            try:
-                logger.debug(f"Заполняю поле {field_name}...")
-                
-                # Находим textarea по имени
-                textarea = page.locator(f'textarea[name="{field_name}"]').first
-                
-                if not self.is_visible(textarea, timeout=800):
-                    logger.warning(f"Поле {field_name} не видимо")
-                    continue
-                
-                # Заполняем поле
-                textarea.click()
-                page.keyboard.press("Control+A")
-                textarea.fill(answer_text)
-                human_pause(self.cfg, 0.2, 0.4)
-                
-                # Проверяем что текст заполнен
-                filled_value = textarea.input_value().strip()
-                if filled_value:
-                    logger.info(f"Поле {field_name} успешно заполнено: {answer_text[:60]}...")
-                    filled_count += 1
-                else:
-                    logger.warning(f"Не удалось заполнить поле {field_name}")
-                    
-            except Exception as e:
-                logger.warning(f"Ошибка при заполнении поля {field_name}: {e}")
+
+        for q in questions_with_answers:
+            field_name = q.get("field_name", "")
+            field_type = q.get("type", "textarea")
+            answer = q.get("answer")
+            question_text = q.get("question", "")[:60]
+
+            if answer is None:
+                logger.debug(f"Нет ответа для поля '{question_text}', пропускаем")
                 continue
-        
+
+            try:
+                if field_type == "textarea":
+                    textarea = page.locator(f'textarea[name="{field_name}"]').first
+                    if not self.is_visible(textarea, timeout=800):
+                        logger.warning(f"Textarea '{field_name}' не видима")
+                        continue
+                    textarea.click()
+                    page.keyboard.press("Control+A")
+                    textarea.fill(str(answer))
+                    human_pause(self.cfg, 0.2, 0.4)
+                    val = textarea.input_value().strip()
+                    if val:
+                        logger.info(f"[textarea] '{question_text}' заполнен: '{str(answer)[:60]}'")
+                        filled_count += 1
+                    else:
+                        logger.warning(f"[textarea] '{question_text}' не удалось заполнить")
+
+                elif field_type == "checkbox":
+                    selected_values = answer if isinstance(answer, list) else []
+                    if not selected_values:
+                        logger.info(f"[checkbox] '{question_text}': нет подходящих вариантов")
+                        continue
+                    for val in selected_values:
+                        cb = page.locator(
+                            f'input[type="checkbox"][name="{field_name}"][value="{val}"]').first
+                        try:
+                            if self.is_visible(cb, timeout=500) and not cb.is_checked():
+                                cb.check()
+                                logger.info(f"[checkbox] '{question_text}': выбран value='{val}'")
+                                filled_count += 1
+                        except Exception as e:
+                            logger.warning(f"[checkbox] Не удалось выбрать value='{val}': {e}")
+
+                elif field_type == "radio":
+                    selected_value = str(answer) if answer else ""
+                    if not selected_value:
+                        logger.warning(f"[radio] '{question_text}': пустой ответ")
+                        continue
+                    rb = page.locator(
+                        f'input[type="radio"][name="{field_name}"][value="{selected_value}"]').first
+                    try:
+                        if self.is_visible(rb, timeout=500):
+                            rb.check()
+                            logger.info(f"[radio] '{question_text}': выбран value='{selected_value}'")
+                            filled_count += 1
+                        else:
+                            logger.warning(f"[radio] '{question_text}': value='{selected_value}' не видим")
+                    except Exception as e:
+                        logger.warning(f"[radio] Не удалось выбрать value='{selected_value}': {e}")
+
+                human_pause(self.cfg, 0.1, 0.3)
+
+            except Exception as e:
+                logger.warning(f"Ошибка при заполнении поля '{question_text}': {e}")
+                continue
+
         return filled_count > 0
 
     def apply_to_vacancy(self, context: BrowserContext, url: str, cover_text: str) -> tuple[ApplyResult, str]:
@@ -1173,16 +1238,14 @@ class HHClient:
             if custom_questions:
                 logger.info(f"Обнаружено {len(custom_questions)} кастомных вопросов. Генерирую ответы...")
                 resume_context = self._extract_resume_context(page)
-                answers = self._generate_answers_for_custom_questions(
-                    custom_questions, 
-                    resume_context, 
+                questions_with_answers = self._generate_answers_for_custom_questions(
+                    custom_questions,
+                    resume_context,
                     title
                 )
-                if answers:
-                    logger.info(f"Заполняю {len(answers)} кастомных полей...")
-                    success = self._fill_custom_questions(page, answers)
-                    if not success:
-                        logger.warning("Не удалось заполнить некоторые кастомные поля")
+                if questions_with_answers:
+                    logger.info(f"Заполняю {len(questions_with_answers)} кастомных полей...")
+                    self._fill_custom_questions(page, questions_with_answers)
                 else:
                     logger.warning("Не удалось сгенерировать ответы на кастомные вопросы")
             # --- Конец обработки кастомных вопросов ---
