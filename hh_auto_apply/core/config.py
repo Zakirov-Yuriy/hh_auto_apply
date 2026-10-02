@@ -138,7 +138,7 @@ class Config:
             screenshots_dir=os.getenv("HH_SCREENSHOTS_DIR", "screenshots"),
             db_path=os.getenv("HH_DB_PATH", "hh_seen.sqlite"),
             seen_ttl_days=int(os.getenv("HH_SEEN_TTL_DAYS", "14")),
-            resume_match=os.getenv("HH_RESUME_TITLE_MATCH", "Python разработчик").strip().lower(),
+            resume_match=os.getenv("HH_RESUME_TITLE_MATCH", "Flutter").strip().lower(),
             fail_if_resume_not_found=os.getenv("HH_FAIL_IF_RESUME_NOT_FOUND", "true").lower() == "true",
             require_cover_letter=os.getenv("HH_REQUIRE_COVER_LETTER", "true").lower() == "true",
             linkedin_headline_path=Path(

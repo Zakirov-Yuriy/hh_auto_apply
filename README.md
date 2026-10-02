@@ -161,7 +161,7 @@ HH_SEARCH_QUERY="python разработчик"
 HH_REGION_IDS="1,2"
 HH_REMOTE_ONLY="true"
 HH_MAX_APPLIES="100"
-HH_RESUME_TITLE_MATCH="Python разработчик"
+HH_RESUME_TITLE_MATCH="Flutter"
 ```
 
 ### Enable AI Cover Letters

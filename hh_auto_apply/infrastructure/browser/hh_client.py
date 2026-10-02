@@ -92,28 +92,35 @@ class HHClient:
         except Exception:
             return False
 
+    # Слова, по которым узнаём тип поиска. Порядок проверки важен: fullstack
+    # ищем раньше php, иначе запрос "fullstack php" ушёл бы в php-промпт.
+    FULLSTACK_MARKERS = ("fullstack", "full stack", "full-stack", "фулстек", "фуллстек", "фул стек")
+    PHP_MARKERS = ("php", "laravel", "пхп", "ларавел")
+
     def _get_job_type_folder(self) -> str:
         """Определяет подпапку для скриншотов на основе search_query.
-        
+
         Returns:
-            Название подпапки (flutter, python, или other)
+            Название подпапки (flutter, fullstack, php, python или other)
         """
         search_query = self.cfg.search_query.lower()
-        fullstack_markers = ("fullstack", "full stack", "full-stack", "фулстек", "фуллстек", "фул стек")
+
         if "flutter" in search_query:
             return "flutter"
-        elif any(marker in search_query for marker in fullstack_markers):
+        if any(marker in search_query for marker in self.FULLSTACK_MARKERS):
             return "fullstack"
-        elif "python" in search_query:
+        if any(marker in search_query for marker in self.PHP_MARKERS):
+            return "php"
+        if "python" in search_query:
             return "python"
-        else:
-            return "other"
+
+        return "other"
 
     def _get_prompt_file(self) -> Path:
         """Определяет и возвращает путь к файлу промпта на основе search_query.
         
         Returns:
-            Path к файлу промпта (prompt_python.txt, prompt_flutter.txt или prompt.txt)
+            Path к файлу промпта (prompt_flutter.txt, prompt_fullstack.txt, prompt_php.txt)
         
         Raises:
             FileNotFoundError: Если ни один файл промпта не найден
@@ -135,27 +142,27 @@ class HHClient:
                 f"Откатываюсь на автовыбор по search_query."
             )
 
-        # Приоритет 2: автовыбор по типу поиска
-        # Пытаемся найти специфичный для типа поиска файл
-        if "flutter" in search_query:
-            prompt_file = self.cfg.ai_prompts_dir / "prompt_flutter.txt"
+        # Приоритет 2: автовыбор по типу поиска.
+        #
+        # Порядок тот же, что в _get_job_type_folder, и он важен: fullstack
+        # проверяется раньше php, иначе запрос "fullstack php" ушёл бы в
+        # php-промпт.
+        by_type = {
+            "flutter": "prompt_flutter.txt",
+            "fullstack": "prompt_fullstack.txt",
+            "php": "prompt_php.txt",
+            "python": "prompt_python.txt",
+        }
+
+        job_type = self._get_job_type_folder()
+
+        if job_type in by_type:
+            prompt_file = self.cfg.ai_prompts_dir / by_type[job_type]
             if prompt_file.exists():
-                logger.debug(f"Найден Flutter промпт: {prompt_file}")
+                logger.debug(f"Найден промпт по типу поиска {job_type}: {prompt_file}")
                 return prompt_file
-        
-        fullstack_markers = ("fullstack", "full stack", "full-stack", "фулстек", "фуллстек", "фул стек")
-        if any(marker in search_query for marker in fullstack_markers):
-            prompt_file = self.cfg.ai_prompts_dir / "prompt_fullstack.txt"
-            if prompt_file.exists():
-                logger.debug(f"Найден Fullstack промпт: {prompt_file}")
-                return prompt_file
-        
-        if "python" in search_query:
-            prompt_file = self.cfg.ai_prompts_dir / "prompt_python.txt"
-            if prompt_file.exists():
-                logger.debug(f"Найден Python промпт: {prompt_file}")
-                return prompt_file
-        
+
+
         # Fallback: ищем generic prompt файл
         generic_prompt = self.cfg.ai_prompts_dir / "prompt.txt"
         if generic_prompt.exists():
@@ -166,7 +173,7 @@ class HHClient:
         available_files = list(self.cfg.ai_prompts_dir.glob("prompt*.txt"))
         raise FileNotFoundError(
             f"Файл с промптом не найден. Ищу в {self.cfg.ai_prompts_dir}/\n"
-            f"Ожидалось: prompt_python.txt или prompt_flutter.txt\n"
+            f"Ожидалось одно из: prompt_flutter.txt, prompt_fullstack.txt, prompt_php.txt\n"
             f"Найденные файлы: {[f.name for f in available_files] or 'нет'}"
         )
 
