@@ -6,6 +6,7 @@ from typing import Dict, List
 from urllib.parse import urlencode
 
 import json
+import time
 
 import requests
 from loguru import logger
@@ -397,17 +398,34 @@ class HHClient:
 
         final_prompt = prompt_template.format(job_description=job_description)
 
+        # Про размышляющие модели (03.10.2026).
+        #
+        # Qwen3.8 и подобные сначала думают про себя, и эти рассуждения тоже
+        # едят отведённые токены. При лимите в 1000 модель успевала только
+        # подумать, а поле с текстом письма возвращала пустым, и бот падал на
+        # попытке обрезать пробелы у пустоты.
+        #
+        # Поэтому: размышление выключаем явно, а запас токенов поднимаем. Письмо
+        # у нас 150-200 слов, но промпт длинный, и ответу нужен воздух.
         data = {
             "model": self.cfg.ai_model,
             "messages": [
                 {"role": "user", "content": final_prompt}
             ],
-            "max_tokens": 1000,
+            "max_tokens": 4000,
             "temperature": 0.7,
+            "reasoning": {"enabled": False, "exclude": True},
         }
         
-        # Попытаемся использовать текущий ключ, и если ошибка, перейдём на следующий
-        max_attempts = len(self.key_rotator.api_keys) if self.key_rotator.has_multiple_keys() else 1
+        # Попыток столько, сколько ключей, но не меньше трёх (03.10.2026).
+        #
+        # Бесплатные модели регулярно отвечают 429: их общий поток поделён на
+        # всех желающих. Это не отказ, а просьба подождать, и через несколько
+        # секунд запрос обычно проходит. Без повторов на бесплатной модели
+        # пропускалась бы половина вакансий.
+        RETRY_PAUSE = 15
+
+        max_attempts = max(3, len(self.key_rotator.api_keys))
         
         for attempt in range(max_attempts):
             try:
@@ -426,7 +444,21 @@ class HHClient:
                 response.raise_for_status()
                 
                 result = response.json()
-                raw_letter = result["choices"][0]["message"]["content"].strip()
+
+                # Читаем ответ бережно: у размышляющих моделей поле с текстом
+                # бывает пустым, и раньше бот падал на этом с трассировкой на
+                # пол-экрана (03.10.2026).
+                choices = result.get("choices") or []
+                message = (choices[0].get("message") or {}) if choices else {}
+                raw_letter = (message.get("content") or "").strip()
+
+                if not raw_letter:
+                    finish = choices[0].get("finish_reason") if choices else None
+                    logger.warning(
+                        f"Модель вернула пустое письмо (причина завершения: {finish}). "
+                        f"Если это повторяется, смените модель в AI_MODEL на ту, что без размышлений."
+                    )
+                    return ""
 
                 # Убираем технические токены, которые могут добавлять некоторые модели
                 clean_letter = raw_letter.replace("<s>", "").replace("</s>", "").replace("[INST]", "").replace("[/INST]", "").strip()
@@ -440,17 +472,26 @@ class HHClient:
                     error_msg += f" | Response: {e.response.text[:200]}"
                 logger.warning(f"Ошибка при генерации письма (попытка {attempt + 1}/{max_attempts}): {error_msg}")
                 
-                # Если есть другие ключи, переключимся на следующий
-                if self.key_rotator.has_multiple_keys() and attempt < max_attempts - 1:
-                    try:
-                        self.key_rotator.rotate_to_next()
+                is_rate_limit = "429" in error_msg or "Too Many Requests" in error_msg
+
+                if attempt < max_attempts - 1:
+                    # Другой ключ пробуем только если он есть. На лимите
+                    # провайдера смена ключа не помогает, помогает пауза.
+                    if self.key_rotator.has_multiple_keys() and not is_rate_limit:
+                        try:
+                            self.key_rotator.rotate_to_next()
+                            continue
+                        except ValueError:
+                            logger.error("Все API ключи исчерпаны")
+                            return ""
+
+                    if is_rate_limit:
+                        logger.info(f"Модель занята, жду {RETRY_PAUSE} секунд и пробую снова.")
+                        time.sleep(RETRY_PAUSE)
                         continue
-                    except ValueError:
-                        logger.error("Все API ключи исчерпаны")
-                        return ""
-                else:
-                    logger.error(f"Ошибка при генерации сопроводительного письма: {error_msg}")
-                    return ""
+
+                logger.error(f"Ошибка при генерации сопроводительного письма: {error_msg}")
+                return ""
                     
             except (KeyError, IndexError) as e:
                 logger.error(f"Ошибка парсинга ответа от API: {e}")
@@ -1211,13 +1252,34 @@ class HHClient:
 
             apply_btn = self.get_apply_button(page)
             generated_cover_letter = ""
-            if self.cfg.use_ai_cover_letter and self.key_rotator:
+            if self.cfg.use_ai_cover_letter:
+                if not self.key_rotator:
+                    logger.error(
+                        "Включена генерация писем, но ключ OPENROUTER_API_KEY не задан. "
+                        "Отклик не отправляю."
+                    )
+                    return ApplyResult.SKIPPED_FORM_INCOMPLETE, title
+
                 logger.info("Генерация сопроводительного письма с помощью ИИ...")
                 job_description = self._fetch_job_description(page, url)
                 if job_description:
                     generated_cover_letter = self._generate_cover_letter(job_description)
                 else:
                     logger.warning("Не удалось получить описание вакансии для генерации письма.")
+
+            # Запасное письмо идёт в дело, только если генерация ИИ выключена
+            # намеренно (03.10.2026).
+            #
+            # Раньше при любой осечке подставлялся файл cover_letter.txt. Он
+            # написан под один стек, и на вакансию другого стека уходило письмо
+            # не по адресу: на PHP-вакансию ушло письмо про Flutter. Для
+            # кандидата это хуже, чем не откликнуться вовсе.
+            if self.cfg.use_ai_cover_letter and not generated_cover_letter:
+                logger.error(
+                    "ИИ не смог написать письмо для этой вакансии. Отклик не отправляю, "
+                    "чтобы не ушло запасное письмо не по стеку."
+                )
+                return ApplyResult.SKIPPED_FORM_INCOMPLETE, title
 
             final_cover_text = generated_cover_letter if generated_cover_letter else cover_text
 
