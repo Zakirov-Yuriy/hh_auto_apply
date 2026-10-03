@@ -16,6 +16,7 @@ class CLIArgs:
     dry_run: bool = False
     verbose: bool = False
     query: str | None = None
+    resume: str | None = None
     platform: str | None = None
 
 
@@ -36,6 +37,15 @@ def parse_args() -> CLIArgs:
     parser.add_argument("--dry-run", action="store_true", help="Не отправлять отклики, только сканировать")
     parser.add_argument("--verbose", action="store_true", help="Подробные логи")
     parser.add_argument("--query", type=str, help="Переопределить запрос поиска")
+    parser.add_argument(
+        "--resume",
+        type=str,
+        help=(
+            "Переопределить маску резюме (HH_RESUME_TITLE_MATCH). "
+            'Хватает одного слова: --resume "Flutter", --resume "PHP". '
+            "Маска ищется вхождением в название резюме на форме отклика"
+        ),
+    )
 
     args = parser.parse_args()
     return CLIArgs(
@@ -43,6 +53,7 @@ def parse_args() -> CLIArgs:
         dry_run=bool(args.dry_run),
         verbose=bool(args.verbose),
         query=args.query,
+        resume=args.resume,
         platform=args.platform,
     )
 
@@ -63,6 +74,11 @@ def apply_cli_overrides(cfg: Config, cli_args: CLIArgs) -> Config:
     }
     if cli_args.query:
         updates["search_query"] = cli_args.query.strip()
+
+    # Маска резюме приводится к нижнему регистру так же, как при чтении из
+    # .env: сравнение в select_specific_resume идёт в нижнем регистре.
+    if cli_args.resume:
+        updates["resume_match"] = cli_args.resume.strip().lower()
 
     if cli_args.platform:
         new_platform = cli_args.platform.strip().lower()

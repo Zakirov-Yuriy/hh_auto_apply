@@ -212,13 +212,29 @@ python run.py --platform linkedin
 --headless
 --dry-run
 --verbose
---query "python developer"
+--query "php developer"
+--resume "PHP"
 ```
 
-Example:
+`--query` задаёт поисковый запрос и этим же выбирает промпт письма:
+flutter берёт `prompt_flutter.txt`, fullstack берёт `prompt_fullstack.txt`,
+php или laravel берут `prompt_php.txt`.
+
+`--resume` задаёт маску резюме на форме отклика. Маска ищется вхождением,
+поэтому хватает одного слова.
+
+Три резюме, три команды. Файл `.env` при таком запуске менять не нужно:
 
 ```bash
-python run.py --dry-run --verbose --query "Python Backend Developer"
+python run.py --query "Flutter разработчик"   --resume "Flutter"
+python run.py --query "Fullstack разработчик" --resume "Fullstack"
+python run.py --query "PHP разработчик"       --resume "PHP"
+```
+
+Сначала стоит прогнать вхолостую, без отправки откликов:
+
+```bash
+python run.py --dry-run --verbose --query "PHP разработчик" --resume "PHP"
 ```
 
 ---
