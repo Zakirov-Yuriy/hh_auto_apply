@@ -519,22 +519,12 @@ class HHClient:
                 return True
         return self.get_apply_button(page) is None
 
-    def select_specific_resume(self, page: Page, mask: str) -> bool:
-        mask = (mask or "").strip().lower()
-        if not mask:
-            logger.warning("Маска резюме пуста, пропускаю выбор.")
-            return False
+    def _collect_resume_rows(self, page: Page) -> list:
+        """Собрать карточки резюме с формы отклика.
 
-        def norm(s: str) -> str:
-            s = (s or "").lower()
-            for ch in ("|", "\u2022", "\u00b7", "\u2014", "\u2013", "-", "/", ",", "\n", "\t"):
-                s = s.replace(ch, " ")
-            return " ".join(s.split())
-
-        mask_norm = norm(mask)
-        mask_tokens = [t for t in mask_norm.split() if len(t) > 2]
-
-        rows = []  # (text, radio | None, container)
+        Возвращает список кортежей (текст, radio или None, контейнер).
+        """
+        rows = []
 
         # 1) Основной путь: radio-кнопки выбора резюме
         radios = page.locator('input[type="radio"]')
@@ -569,6 +559,81 @@ class HHClient:
                             text = ""
                         rows.append((text, None, el))
                     break
+
+        return rows
+
+    def _expand_resume_list(self, page: Page) -> bool:
+        """Раскрыть выпадающий список резюме на форме отклика (03.10.2026).
+
+        Свёрнутым список показывает только текущее резюме, и выбирать не из
+        чего. Жмём по видимой карточке и смотрим, прибавилось ли вариантов.
+
+        Returns:
+            True, если после клика карточек стало больше.
+        """
+        selectors = (
+            '[data-qa="resume-select"]',
+            '[data-qa="resume-select_item"]',
+            '[data-qa="resume-title"]',
+        )
+
+        def count_rows() -> int:
+            total = page.locator('input[type="radio"]').count()
+            if total == 0:
+                total = page.locator('[data-qa="resume-select_item"]').count()
+            if total == 0:
+                total = page.locator('[data-qa="resume-title"]').count()
+            return total
+
+        before = count_rows()
+
+        for sel in selectors:
+            loc = page.locator(sel)
+            if loc.count() == 0:
+                continue
+
+            try:
+                loc.first.click()
+                page.wait_for_timeout(800)
+            except Exception as e:
+                logger.debug(f"Не удалось раскрыть список через {sel}: {e}")
+                continue
+
+            after = count_rows()
+            if after > before:
+                logger.info(f"Раскрыл список резюме: было {before}, стало {after}")
+                return True
+
+        logger.info("Список резюме раскрыть не удалось, работаю с тем, что видно.")
+        return False
+
+    def select_specific_resume(self, page: Page, mask: str) -> bool:
+        mask = (mask or "").strip().lower()
+        if not mask:
+            logger.warning("Маска резюме пуста, пропускаю выбор.")
+            return False
+
+        def norm(s: str) -> str:
+            s = (s or "").lower()
+            for ch in ("|", "\u2022", "\u00b7", "\u2014", "\u2013", "-", "/", ",", "\n", "\t"):
+                s = s.replace(ch, " ")
+            return " ".join(s.split())
+
+        mask_norm = norm(mask)
+        mask_tokens = [t for t in mask_norm.split() if len(t) > 2]
+
+        rows = self._collect_resume_rows(page)
+
+        # Резюме может быть несколько, а форма показывает одно (03.10.2026).
+        #
+        # На форме отклика hh.ru резюме выбирается выпадающим списком: свёрнутым
+        # виден только текущий вариант. Бот находил одну карточку и выбирал её,
+        # какой бы она ни была. У человека с тремя резюме (Flutter, Fullstack,
+        # PHP) это значит, что на PHP-вакансию мог уйти Flutter.
+        #
+        # Поэтому: если карточка одна, пробуем раскрыть список и собрать заново.
+        if len(rows) <= 1 and self._expand_resume_list(page):
+            rows = self._collect_resume_rows(page)
 
         if not rows:
             logger.warning("На форме отклика не найдено ни одной карточки резюме.")
