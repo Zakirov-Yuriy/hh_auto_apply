@@ -1,317 +1,282 @@
 # hh_auto_apply
 
-AI powered job application automation tool for hh.ru and LinkedIn.
+Бот автооткликов на вакансии: сам ищет подходящие, пишет сопроводительное письмо
+под каждую вакансию через нейросеть, выбирает нужное резюме и отправляет отклик.
 
-The project automates vacancy discovery, application submission and personalized cover letter generation using browser automation and LLM models.
-
-Built with Clean Architecture, Playwright automation and OpenRouter integration.
-
----
-
-## Features
-
-### Job Search Automation
-
-* Automated vacancy discovery
-* hh.ru application workflow
-* LinkedIn Easy Apply support
-* Vacancy filtering and matching
-* Duplicate application prevention
-
-### AI Features
-
-* Personalized cover letter generation
-* Vacancy analysis using LLMs
-* Resume matching
-* OpenRouter integration
-* Custom prompt templates
-
-### Automation
-
-* Browser automation with Playwright
-* Automatic form filling
-* Session management
-* Custom question handling
-* Dry run mode
-
-### Data Management
-
-* SQLite storage
-* Application history tracking
-* CSV export and reporting
-* Process monitoring
+Работает с hh.ru, есть заготовка под LinkedIn.
 
 ---
 
-## Tech Stack
+## Три команды на каждый день
 
-### Backend
+Скопировать, вставить, запустить. Больше ничего настраивать не надо.
 
-* Python 3
-* Playwright
-* SQLite
+**PHP и Laravel:**
 
-### AI
+```powershell
+cd "C:\Users\zakco\VS Code\hh_auto_apply"; .\.venv\Scripts\python.exe run.py --query "PHP разработчик" --resume "Backend Developer"
+```
 
-* OpenRouter
-* LLM Integration
-* Prompt Engineering
+**Flutter:**
 
-### Architecture
+```powershell
+cd "C:\Users\zakco\VS Code\hh_auto_apply"; .\.venv\Scripts\python.exe run.py --query "Flutter разработчик" --resume "Senior Flutter"
+```
 
-* Clean Architecture
-* Layered Architecture
-* Domain Layer
-* Application Layer
-* Infrastructure Layer
+**Fullstack:**
 
-### Testing
+```powershell
+cd "C:\Users\zakco\VS Code\hh_auto_apply"; .\.venv\Scripts\python.exe run.py --query "Fullstack разработчик" --resume "Fullstack"
+```
 
-* pytest
+Посмотреть, что бот нашёл бы, ничего не отправляя:
+
+```powershell
+cd "C:\Users\zakco\VS Code\hh_auto_apply"; .\.venv\Scripts\python.exe run.py --dry-run --verbose --query "PHP разработчик" --resume "Backend Developer"
+```
+
+### Что означают два ключа
+
+`--query` задаёт поисковый запрос и этим же выбирает, каким промптом писать
+письмо: flutter берёт `prompt_flutter.txt`, fullstack берёт
+`prompt_fullstack.txt`, php или laravel берут `prompt_php.txt`.
+
+`--resume` задаёт, какое резюме выбрать на форме отклика. Маска ищется
+вхождением, поэтому хватает пары слов. Главное, чтобы маска подходила ровно к
+одному резюме:
+
+| Резюме на hh.ru | Маска |
+|---|---|
+| Senior Backend Developer (PHP, Laravel) | `Backend Developer` |
+| Senior Flutter Developer | `Senior Flutter` |
+| Fullstack Developer (Flutter, PHP, Laravel) | `Fullstack` |
+
+Маска `PHP` не годится: слово PHP есть и в бэкенд-резюме, и в фулстек-резюме,
+бот возьмёт первое попавшееся.
 
 ---
 
-## Architecture
+## Что бот делает сам
 
-```text
-CLI
- │
- ▼
-Application Layer
- │
- ▼
-Domain Layer
- │
- ▼
-Infrastructure Layer
- ├── Playwright
- ├── OpenRouter
- ├── SQLite
- └── External Platforms
-      ├── hh.ru
-      └── LinkedIn
-```
+- ищет вакансии по запросу, удалённые, с нужного региона;
+- отбрасывает неподходящие по стоп-словам из `.env`;
+- запоминает просмотренные вакансии на 14 дней, чтобы не ходить по кругу;
+- читает описание вакансии и пишет письмо под неё через нейросеть;
+- отвечает на вопросы работодателя в форме отклика;
+- подставляет зарплату в зарплатный вопрос;
+- раскрывает список резюме и выбирает нужное по маске;
+- ведёт учёт: успешные отклики в `data/vacancies.csv`, неудачи с причиной в
+  `data/vacancies_failed.csv`;
+- делает скриншот при ошибке, в папку `screenshots`.
+
+**Чего бот не делает:** не отправляет отклик, если нейросеть не смогла написать
+письмо. Лучше пропустить вакансию, чем прислать письмо не по теме.
 
 ---
 
-## What This Project Demonstrates
+## Откуда берутся факты в письмах
 
-* Python backend development
-* Browser automation
-* Playwright integration
-* LLM integration
-* Prompt engineering
-* Clean Architecture
-* Data persistence
-* Automated testing
-* CLI application development
-* Third-party API integrations
+Файл `data/profile.md` это база фактов о кандидате: стек, проекты, цифры,
+разобранные задачи, а также список того, чего в опыте нет.
 
----
+Все три промпта берут факты оттуда. **Меняется проект, правится этот файл,
+промпты трогать не нужно.** Так письма не рассказывают о вчерашнем дне.
 
-## Installation
+Промпты в `data/`:
 
-### Clone repository
+| Файл | Когда берётся |
+|---|---|
+| `prompt_php.txt` | в запросе есть php или laravel |
+| `prompt_flutter.txt` | в запросе есть flutter |
+| `prompt_fullstack.txt` | fullstack, full stack, фулстек |
 
-```bash
-git clone https://github.com/Zakirov-Yuriy/hh_auto_apply.git
-cd hh_auto_apply
-```
+Порядок проверки: сначала flutter, потом fullstack, потом php. Поэтому запрос
+«fullstack php» уйдёт в фулстек-промпт, а не в php.
 
-### Create virtual environment
-
-```bash
-python -m venv .venv
-```
-
-Windows:
-
-```bash
-.venv\Scripts\activate
-```
-
-Linux/macOS:
-
-```bash
-source .venv/bin/activate
-```
-
-### Install dependencies
-
-```bash
-pip install -r requirements.txt
-```
-
-### Install Playwright browsers
-
-```bash
-playwright install
-```
+Запасное письмо `data/cover_letter.txt` используется, только если генерация
+через нейросеть выключена настройкой `HH_USE_AI_COVER_LETTER=false`.
 
 ---
 
-## Configuration
+## Настройка, файл .env
 
-The project is configured through a `.env` file.
+Лежит в корне проекта, в репозиторий не попадает.
 
-### Main Settings
+### Что именно искать и каким резюме откликаться
 
 ```dotenv
-HH_SEARCH_QUERY="python разработчик"
-HH_REGION_IDS="1,2"
-HH_REMOTE_ONLY="true"
-HH_MAX_APPLIES="100"
-HH_RESUME_TITLE_MATCH="Flutter"
+HH_SEARCH_QUERY="PHP разработчик"
+HH_RESUME_TITLE_MATCH="Backend Developer"
+HH_STOP_WORDS="QA,Тестировщик,DevOps,1С,Tech Lead,Team Lead,Bitrix,Bitrix24,Битрикс24,Java,C++,Go"
 ```
 
-### Enable AI Cover Letters
+Эти три настройки перебиваются ключами `--query` и `--resume` при запуске,
+поэтому для повседневной работы `.env` можно не трогать.
+
+Важно: одна и та же настройка не должна встречаться в файле дважды. Побеждает
+последняя, и ошибку эту потом ищешь долго.
+
+### Нейросеть
 
 ```dotenv
-USE_AI_COVER_LETTER="true"
-```
-
-### OpenRouter API Key
-
-```dotenv
+HH_USE_AI_COVER_LETTER="true"
 OPENROUTER_API_KEY="sk-or-v1-..."
+AI_MODEL="qwen/qwen3.8-27b:free"
 ```
 
-### AI Model
+Ключ берётся на openrouter.ai, раздел API Keys. Показывается он один раз,
+копировать целиком, вместе с началом `sk-or-v1-`.
+
+Для бесплатных моделей в настройках OpenRouter, раздел Privacy, должно быть
+разрешено обучение на запросах. Иначе приходит ошибка про data policy и писем
+не будет вовсе.
+
+Бесплатные модели иногда отвечают «слишком много запросов». Это не поломка: бот
+ждёт 15 секунд и пробует снова, до трёх раз.
+
+### Остальное
 
 ```dotenv
-AI_MODEL="mistralai/mistral-7b-instruct:free"
-```
-
-### Prompt Configuration
-
-```dotenv
-AI_PROMPT_PATH="prompt.txt"
-```
-
-The prompt file can be customized to generate cover letters in different styles and languages.
-
----
-
-## Usage
-
-Run hh.ru automation:
-
-```bash
-python run.py --platform hh
-```
-
-Run LinkedIn automation:
-
-```bash
-python run.py --platform linkedin
-```
-
-### Command Line Options
-
-```bash
---headless
---dry-run
---verbose
---query "php developer"
---resume "PHP"
-```
-
-`--query` задаёт поисковый запрос и этим же выбирает промпт письма:
-flutter берёт `prompt_flutter.txt`, fullstack берёт `prompt_fullstack.txt`,
-php или laravel берут `prompt_php.txt`.
-
-`--resume` задаёт маску резюме на форме отклика. Маска ищется вхождением,
-поэтому хватает одного слова.
-
-Три резюме, три команды. Файл `.env` при таком запуске менять не нужно:
-
-```bash
-python run.py --query "Flutter разработчик"   --resume "Flutter"
-python run.py --query "Fullstack разработчик" --resume "Fullstack"
-python run.py --query "PHP разработчик"       --resume "PHP"
-```
-
-Сначала стоит прогнать вхолостую, без отправки откликов:
-
-```bash
-python run.py --dry-run --verbose --query "PHP разработчик" --resume "PHP"
+HH_MAX_APPLIES="100"          # предел откликов за запуск
+HH_REGION_IDS="0"             # 0 это вся Россия
+HH_REMOTE_ONLY="true"         # только удалённые
+HH_MIN_SLEEP="3"              # пауза между вакансиями, секунды
+HH_MAX_SLEEP="7"
+HH_SEEN_TTL_DAYS="14"         # сколько помнить просмотренные вакансии
+HH_FAIL_IF_RESUME_NOT_FOUND="true"   # не откликаться, если резюме не нашлось
+HH_PERSIST_DIR=".hh_user"     # профиль браузера, чтобы не входить каждый раз
 ```
 
 ---
 
-## Project Structure
+## Установка с нуля
+
+Нужна, только если переставляешь систему или заводишь проект на другом
+компьютере.
+
+### 1. Python
+
+Проверить, стоит ли:
+
+```powershell
+py --version
+```
+
+Если команда не найдена или печатает пустое слово «Python», значит это заглушка
+Microsoft Store, а настоящего Python нет. Поставить:
+
+```powershell
+winget install --id Python.Python.3.12 -e --source winget --accept-source-agreements --accept-package-agreements
+```
+
+После установки закрыть PowerShell и открыть заново, иначе он не увидит новые
+пути.
+
+### 2. Окружение и зависимости
+
+Одной командой:
+
+```powershell
+cd "C:\Users\zakco\VS Code\hh_auto_apply"; py -m venv .venv; .\.venv\Scripts\python.exe -m pip install --upgrade pip; .\.venv\Scripts\python.exe -m pip install -r requirements.txt; .\.venv\Scripts\python.exe -m playwright install chromium
+```
+
+Браузер качается несколько минут, это нормально.
+
+### 3. Файл .env
+
+Создать в корне проекта и заполнить, как описано выше.
+
+### 4. Первый запуск
+
+```powershell
+cd "C:\Users\zakco\VS Code\hh_auto_apply"; .\.venv\Scripts\python.exe run.py --dry-run --verbose --query "PHP разработчик" --resume "Backend Developer"
+```
+
+Откроется браузер. Если бот напишет, что не видит входа, войти на hh.ru в этом
+окне и нажать Enter в консоли. Профиль сохранится, больше входить не придётся.
+
+---
+
+## Как читать лог
+
+| Строка | Что значит |
+|---|---|
+| `Найден промпт по типу поиска php` | взят нужный промпт письма |
+| `Сопроводительное письмо сгенерировано` | нейросеть ответила |
+| `Раскрыл список резюме: было 1, стало 3` | список резюме развернулся |
+| `ВЫБРАНА карточка #2 (совпадение 100%)` | резюме выбрано, номер и точность |
+| `Отклик отправлен` | готово |
+| `Отклик не отправляю` | письма нет, вакансия пропущена намеренно |
+| `Модель занята, жду 15 секунд` | предел бесплатной модели, бот ждёт |
+| `Эта вакансия уже посещалась ранее` | смотрели её в последние 14 дней |
+| `Пропускаю по стоп-слову` | сработал фильтр из `.env` |
+
+В конце выводится отчёт: сколько найдено, сколько пропущено и почему, сколько
+откликов ушло.
+
+---
+
+## Если что-то пошло не так
+
+**Бот пишет письмо не по тому стеку.** Проверить, что в `.env` не задан
+`AI_PROMPT_PATH`: он перебивает автовыбор промпта. Должно быть `AI_PROMPT_PATH=""`.
+
+**Выбирается не то резюме.** Посмотреть в логе список карточек после строки
+«Ищу резюме по маске». Подобрать маску так, чтобы она встречалась ровно в одном
+названии.
+
+**Ошибка 401 от нейросети.** Ключ скопирован не целиком. Он начинается с
+`sk-or-v1-`.
+
+**Ошибка про data policy.** В настройках OpenRouter не разрешены бесплатные
+модели, раздел Privacy.
+
+**Модель вернула пустое письмо.** Модель слишком увлеклась размышлениями.
+Поменять `AI_MODEL` на другую, например
+`nvidia/nemotron-3-super-120b-a12b:free`.
+
+**Отклик не отправился, возможно капча.** Вакансия требует чего-то, что бот не
+заполняет. Скриншот лежит в `screenshots`, можно посмотреть и откликнуться
+руками.
+
+---
+
+## Как устроен проект
 
 ```text
 hh_auto_apply/
-├── core/
-│   └── config.py
-│
-├── domain/
-│   └── entities.py
-│
+├── core/config.py              настройки из .env
+├── domain/entities.py          результаты отклика и счётчики
+├── application/run_session.py  сценарий прогона: поиск, фильтры, учёт
 ├── infrastructure/
 │   ├── browser/
-│   │   ├── hh_client.py
-│   │   └── selectors.py
-│   ├── ai/
-│   ├── persistence/
-│   └── utils.py
-│
-├── application/
-│   └── run_session.py
-│
-├── cli/
-│   ├── main.py
-│   └── args.py
-│
-├── docs/
-├── tests/
-└── run.py
+│   │   ├── hh_client.py        вся работа с hh.ru: форма, письмо, резюме
+│   │   ├── linkedin_client.py  заготовка под LinkedIn
+│   │   └── selectors.py        селекторы страниц
+│   ├── ai/vacancy_api.py       обращения к нейросети
+│   └── persistence/seen_repo.py  память о просмотренных вакансиях
+└── cli/                        разбор аргументов запуска
+
+data/
+├── profile.md                  база фактов о кандидате
+├── prompt_php.txt              промпты писем, по одному на резюме
+├── prompt_flutter.txt
+├── prompt_fullstack.txt
+├── cover_letter.txt            запасное письмо, если нейросеть выключена
+├── vacancies.csv               успешные отклики
+└── vacancies_failed.csv        неудачи с причиной
 ```
+
+Слои разделены намеренно: сценарий прогона не знает, что внизу Playwright, а
+работа с сайтом не знает, откуда взялись настройки. Поэтому вторую площадку
+(LinkedIn) можно добавить, не трогая остальное.
 
 ---
 
-## Documentation
+## Автор
 
-| Document                       | Description               |
-| ------------------------------ | ------------------------- |
-| docs/INDEX.md                  | Documentation index       |
-| docs/ARCHITECTURE.md           | Architecture overview     |
-| docs/CUSTOM_QUESTIONS.md       | Custom questions handling |
-| docs/CUSTOM_QUESTIONS_READY.md | Ready-to-use solutions    |
-| data/README.md                 | Resources and templates   |
-| tests/README.md                | Testing guide             |
+Юрий Закиров
 
----
-
-## Testing
-
-Install development dependencies:
-
-```bash
-pip install -r requirements-dev.txt
-```
-
-Run tests:
-
-```bash
-pytest tests/ -v
-```
-
-Run tests with coverage:
-
-```bash
-pytest tests/ --cov=hh_auto_apply --cov-report=html
-```
-
----
-
-## Author
-
-**Yuriy Zakirov**
-
-Python Backend Developer
-
-GitHub: https://github.com/Zakirov-Yuriy
-
-Telegram: @Zak_Yuri
+- GitHub: https://github.com/Zakirov-Yuriy
+- Telegram: @Zak_Yuri
+- Портфолио: https://portfolio-eight-rouge-59.vercel.app/
