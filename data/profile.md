@@ -192,13 +192,50 @@ FastAPI, PostgreSQL, Celery, интеграции с OpenAI и Claude API. На 
 
 ## Фронтенд
 
-React, TypeScript, JavaScript, HTML, CSS и SCSS: компонентный подход, работа с
-состоянием, интеграция с REST API. Blade и серверные шаблоны для админок.
+React, Vue.js, TypeScript, JavaScript, HTML, CSS и SCSS: компонентный подход,
+работа с состоянием, интеграция с REST API. Blade и серверные шаблоны для
+админок.
+
+На проекте ЛИДЛЕ фронтенд сделан не на них: клиент это Flutter, админка это
+Blade. Поэтому React и Vue.js упоминать как умение можно, а приписывать им цифры
+проекта нельзя.
+
+## Белый список: только эти технологии можно называть своими
+
+Серверная часть: PHP, Laravel, PostgreSQL, Redis, Elasticsearch, Laravel Reverb,
+веб-сокеты, Sanctum, Eloquent, очереди и фоновые задачи, миграции, Blade,
+Docker, GitLab CI, GitHub Actions, Linux, Nginx, php-fpm, Supervisor, REST API,
+JWT, OAuth, Git.
+
+Мобильная часть: Flutter, Dart, BLoC, GetIt, Hive, Firebase, FCM, веб-сокеты,
+deep links, публикация в Google Play и RuStore.
+
+Фронтенд: React, Vue.js, TypeScript, JavaScript, HTML, CSS, SCSS.
+
+Про фронтенд оговорка: React и Vue.js кандидат знает и умеет на них работать,
+но на текущем проекте ЛИДЛЕ они не применяются, там клиент сделан на Flutter, а
+админка на Blade. Поэтому про них можно писать «работал с», «знаю», «умею», но
+НЕЛЬЗЯ привязывать их к проекту ЛИДЛЕ и к его цифрам.
+
+Второй язык: Python, FastAPI, Celery, OpenAI API, Claude API.
+
+Интеграции: ЮKassa, Firebase Cloud Messaging, Web Push, VK ID, выгрузки в
+Яндекс (YML, RSS), импорт из внешних CRM по фидам.
+
+ВСЁ, ЧЕГО НЕТ В ЭТОМ СПИСКЕ, называть своим опытом нельзя. Ни Angular, ни
+Symfony, ни Yii, ни Bitrix, ни Kubernetes, ни RabbitMQ, ни Kafka, ни MongoDB,
+ни Nest.js, ни Prisma, ни GraphQL, ни Go, ни Java.
+
+Отдельно про тесты: автотестов на проекте ЛИДЛЕ практически нет. Писать «пишу
+юнит-тесты» или «покрываю тестами» НЕЛЬЗЯ. Честная формулировка: вместо
+автотестов сделано больше тридцати самопроверочных консольных команд, которые
+ничего не меняют и запускаются прямо на продакшене.
 
 ## Чего в опыте нет
 
-Не приписывать: Symfony, Yii, Bitrix, Vue, Angular, Kubernetes, iOS как основной
-стек, React Native, KMM, автотесты на проекте ЛИДЛЕ.
+Не приписывать: Symfony, Yii, Bitrix, Angular, Kubernetes, RabbitMQ, Kafka,
+MongoDB, Nest.js, Prisma, GraphQL, iOS как основной стек, React Native, KMM,
+автотесты на проекте ЛИДЛЕ.
 
 Если вакансия требует чего-то из этого списка, честно назвать смежный опыт одной
 фразой и не раздувать.
