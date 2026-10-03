@@ -377,6 +377,46 @@ class HHClient:
         logger.warning("Не удалось найти описание вакансии.")
         return ""
 
+    def _profile_facts(self) -> str:
+        """База фактов о кандидате из data/profile.md (03.10.2026).
+
+        ЗАЧЕМ. Раньше опыт, цифры и список проектов лежали прямо в промптах, в
+        трёх копиях. Проект живёт и меняется, копии разъезжались, и письма
+        рассказывали о вчерашнем дне: например, про 40 эндпоинтов, когда их уже
+        273.
+
+        Теперь факты в одном файле. Меняется проект, правится он, промпты не
+        трогаем.
+        """
+        path = self.cfg.ai_prompts_dir / "profile.md"
+
+        try:
+            if path.is_file():
+                return path.read_text(encoding="utf-8").strip()
+        except Exception as e:
+            report = getattr(logger, "warning", None)
+            if report:
+                logger.warning(f"Не смог прочитать базу фактов {path}: {e}")
+
+        logger.warning(
+            f"База фактов не найдена: {path}. Письмо будет написано по одному "
+            f"описанию вакансии, без конкретики."
+        )
+        return ""
+
+    def _fill_prompt(self, template: str, job_description: str) -> str:
+        """Подставить в промпт описание вакансии и базу фактов.
+
+        Плейсхолдер {profile} необязателен: старые промпты без него работают
+        как раньше.
+        """
+        values = {"job_description": job_description}
+
+        if "{profile}" in template:
+            values["profile"] = self._profile_facts()
+
+        return template.format(**values)
+
     def _generate_cover_letter(self, job_description: str) -> str:
         """Генерирует сопроводительное письмо используя OpenRouter API с поддержкой ротации ключей."""
         if not self.key_rotator:
@@ -396,7 +436,7 @@ class HHClient:
             logger.error(f"Ошибка при чтении файла промпта: {e}")
             return ""
 
-        final_prompt = prompt_template.format(job_description=job_description)
+        final_prompt = self._fill_prompt(prompt_template, job_description)
 
         # Про размышляющие модели (03.10.2026).
         #
@@ -1054,12 +1094,44 @@ class HHClient:
 
             try:
                 # --- Быстрый путь для зарплатного вопроса (только textarea) ---
-                salary_markers = (
-                    "зарплат", "ожидани", "gross", "net", "сумм", "на руки",
-                    " руки", "отталкива", "оклад", "доход", "вилк", "зп",
-                    "з/п", "сколько", "желаем", "от какой", "rub", "руб",
+                #
+                # Раньше сюда попадало всё подряд (03.10.2026). В списке
+                # маркеров было слово «сколько», и на вопросы «Сколько лет у вас
+                # опыт на PHP» и «Сколько человек была команда» работодателю
+                # уходило «130000». Выглядит это дико, и исправить такой отклик
+                # уже нельзя.
+                #
+                # Теперь три уровня: однозначные слова про деньги; слова-намёки,
+                # которые считаются только рядом с денежным словом; и стоп-слова,
+                # после которых вопрос точно не про зарплату.
+                salary_strong = (
+                    "зарплат", "з/п", "оклад", "вилк", "на руки", "доход",
+                    "gross", "net", "вознагражд",
                 )
-                if field_type == "textarea" and any(m in q_low for m in salary_markers):
+                salary_money = (
+                    "плат", "оплат", "зарплат", "доход", "руб", "₽", "денеж",
+                    "вознагражд", "ставк", "rub",
+                )
+                salary_hint = (
+                    "сколько", "ожидани", "сумм", "отталкива", "от какой",
+                    "желаем", "уровень", "размер", "минимальн", "комфортн",
+                )
+                not_salary = (
+                    "опыт", "стаж", "лет ", "команд", "человек", "возраст",
+                    "часов", "проект", "технолог",
+                )
+
+                is_salary = False
+                if field_type == "textarea":
+                    if any(b in q_low for b in not_salary):
+                        is_salary = False
+                    elif any(m in q_low for m in salary_strong):
+                        is_salary = True
+                    elif (any(h in q_low for h in salary_hint)
+                          and any(m in q_low for m in salary_money)):
+                        is_salary = True
+
+                if is_salary:
                     salary_amount = (self.cfg.salary_expectation
                                      or resume_context.get("salary", "130000"))
                     q_copy["answer"] = salary_amount
@@ -1125,8 +1197,9 @@ class HHClient:
                 data = {
                     "model": self.cfg.ai_model,
                     "messages": [{"role": "user", "content": answer_prompt}],
-                    "max_tokens": max_tokens,
+                    "max_tokens": max(max_tokens, 1500),
                     "temperature": 0.3,
+                    "reasoning": {"enabled": False, "exclude": True},
                 }
 
                 max_attempts = len(self.key_rotator.api_keys) if self.key_rotator.has_multiple_keys() else 1
@@ -1143,7 +1216,17 @@ class HHClient:
                         }
                         response = requests.post(api_url, headers=headers, json=data, timeout=30)
                         response.raise_for_status()
-                        raw_answer = response.json()["choices"][0]["message"]["content"].strip()
+
+                        # Бережно, как и с письмом: размышляющая модель может
+                        # вернуть пустоту вместо текста (03.10.2026).
+                        payload = response.json()
+                        choices = payload.get("choices") or []
+                        message = (choices[0].get("message") or {}) if choices else {}
+                        raw_answer = (message.get("content") or "").strip() or None
+
+                        if raw_answer is None:
+                            logger.warning("Модель вернула пустой ответ на вопрос, поле оставляю пустым.")
+
                         break
                     except requests.exceptions.RequestException as e:
                         logger.warning(f"Ошибка API (попытка {attempt + 1}): {e}")
