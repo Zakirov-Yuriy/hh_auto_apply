@@ -38,6 +38,29 @@ def parse_experience_levels(raw: str) -> List[str]:
     return codes
 
 
+# Бесплатные модели OpenRouter в порядке предпочтения (сверено 19.10.2026 на
+# реальном промпте письма). Первая отвечает за 8-26 секунд, пишет чистый
+# русский без длинных тире и не выдумывает факты. Остальные запасные: Ultra
+# пишет лучше всех, но аптайм около 50%; Super стабильная, но приписывает
+# кандидату требования вакансии; Gemma часто занята (общий пул Google).
+DEFAULT_AI_MODELS = (
+    "nvidia/nemotron-3.5-super-vl:free",
+    "nvidia/nemotron-3-ultra-550b-a55b:free",
+    "nvidia/nemotron-3-super-120b-a12b:free",
+    "google/gemma-4-31b-it:free",
+)
+
+
+def parse_model_list(raw: str) -> List[str]:
+    """Разбирает AI_MODEL: одна модель или несколько через запятую, без дублей."""
+    models: list[str] = []
+    for part in (raw or "").split(","):
+        model = part.strip().strip('"').strip("'")
+        if model and model not in models:
+            models.append(model)
+    return models
+
+
 @dataclass(frozen=True)
 class Config:
     """Application configuration loaded from environment variables."""
@@ -89,7 +112,10 @@ class Config:
     ai_prompts_dir: Path = Path("data")  # Директория с файлами промптов
     ai_prompt_path: str = ""  # Явный файл промпта (имеет приоритет над автовыбором)
     salary_expectation: str = "130000"  # Сумма для зарплатных вопросов (на руки)
-    ai_model: str = "openai/gpt-oss-120b:free"
+    # Модели OpenRouter в порядке предпочтения. ai_model оставлен для логов и
+    # старого кода: это всегда первая модель из ai_models.
+    ai_model: str = DEFAULT_AI_MODELS[0]
+    ai_models: List[str] | None = None
     # HH API настройки для получения структурированных данных вакансии
     use_hh_api_first: bool = True
     hh_api_user_agent: str = "ZakirovCoverLetter/1.0 (zak.yuri@yandex.ru)"
@@ -113,6 +139,8 @@ class Config:
         stop_words = [w.strip() for w in stop_words_str.split(",") if w.strip()] if stop_words_str else []
 
         platform = os.getenv("PLATFORM", "hh").strip().lower()
+
+        ai_models = parse_model_list(os.getenv("AI_MODEL", "")) or list(DEFAULT_AI_MODELS)
 
         # Уровни опыта LinkedIn: по умолчанию стажёр + молодой специалист + специалист.
         experience_levels = parse_experience_levels(
@@ -156,7 +184,8 @@ class Config:
             ai_prompts_dir=Path(os.getenv("AI_PROMPTS_DIR", "data")),
             ai_prompt_path=os.getenv("AI_PROMPT_PATH", "").strip().strip('"').strip("'"),
             salary_expectation=os.getenv("HH_SALARY_EXPECTATION", "130000").strip().strip('"').strip("'"),
-            ai_model=os.getenv("AI_MODEL", "openai/gpt-oss-120b:free").strip(),
+            ai_model=ai_models[0],
+            ai_models=ai_models,
             use_hh_api_first=os.getenv("HH_USE_API_FIRST", "true").lower() == "true",
             hh_api_user_agent=os.getenv(
                 "HH_API_USER_AGENT",

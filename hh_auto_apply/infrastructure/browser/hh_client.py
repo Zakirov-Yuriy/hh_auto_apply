@@ -6,15 +6,18 @@ from typing import Dict, List
 from urllib.parse import urlencode
 
 import json
-import time
 
-import requests
 from loguru import logger
 from playwright._impl._errors import TargetClosedError
 from playwright.sync_api import BrowserContext, Page, TimeoutError as PWTimeoutError
 
-from hh_auto_apply.core.config import Config
+from hh_auto_apply.core.config import DEFAULT_AI_MODELS, Config
 from hh_auto_apply.domain.entities import ApplyResult
+from hh_auto_apply.infrastructure.ai.openrouter import (  # noqa: F401 (APIKeyRotator: старый импорт)
+    APIKeyRotator,
+    OpenRouterClient,
+)
+from hh_auto_apply.infrastructure.ai.postprocess import clean_letter, strip_code_fence
 from hh_auto_apply.infrastructure.ai.vacancy_api import (
     fetch_vacancy,
     format_for_prompt,
@@ -23,62 +26,33 @@ from hh_auto_apply.infrastructure.browser.selectors import Selectors
 from hh_auto_apply.infrastructure.utils import extract_vacancy_id, human_pause
 
 
-class APIKeyRotator:
-    """Управляет ротацией API ключей для OpenRouter.
-    
-    При ошибке с одним ключом автоматически переключается на следующий.
-    """
-    
-    def __init__(self, api_keys: List[str]):
-        """Инициализация ротатора с списком API ключей.
-        
-        Args:
-            api_keys: Список OpenRouter API ключей
-        """
-        if not api_keys:
-            raise ValueError("Необходимо передать хотя бы один API ключ")
-        
-        self.api_keys = api_keys
-        self.current_index = 0
-        logger.info(f"Инициализирован ротатор с {len(api_keys)} ключом(ами)")
-    
-    def get_current_key(self) -> str:
-        """Получить текущий API ключ."""
-        return self.api_keys[self.current_index]
-    
-    def rotate_to_next(self) -> str:
-        """Переключиться на следующий API ключ.
-        
-        Returns:
-            Новый текущий API ключ
-        """
-        old_index = self.current_index
-        self.current_index = (self.current_index + 1) % len(self.api_keys)
-        
-        if self.current_index == old_index and len(self.api_keys) == 1:
-            logger.error("Остался только один API ключ и он выдал ошибку!")
-            raise ValueError("Все API ключи исчерпаны")
-        
-        logger.warning(f"Переключение на следующий API ключ (#{self.current_index + 1}/{len(self.api_keys)})")
-        return self.get_current_key()
-    
-    def has_multiple_keys(self) -> bool:
-        """Проверить, есть ли несколько ключей для ротации."""
-        return len(self.api_keys) > 1
-
-
 class HHClient:
     platform = "hh"
 
     def __init__(self, cfg: Config):
         self.cfg = cfg
         Path(cfg.screenshots_dir).mkdir(parents=True, exist_ok=True)
-        
-        # Инициализируем ротатор ключей если они есть
+
+        # Клиент нейросети: ротация ключей и цепочка запасных моделей
+        # (19.10.2026, вынесено в infrastructure/ai/openrouter.py).
+        # TODO(arch): передавать клиент через конструктор из cli/main.py.
         if cfg.openrouter_api_keys:
-            self.key_rotator = APIKeyRotator(cfg.openrouter_api_keys)
+            self.ai = OpenRouterClient(cfg.openrouter_api_keys, self._models_from_config(cfg))
+            self.key_rotator = self.ai.key_rotator
         else:
+            self.ai = None
             self.key_rotator = None
+
+    @staticmethod
+    def _models_from_config(cfg: Config) -> List[str]:
+        """Список моделей из конфига; старый конфиг с одной ai_model тоже понимает."""
+        models = getattr(cfg, "ai_models", None)
+        if isinstance(models, (list, tuple)) and models:
+            return list(models)
+        single = getattr(cfg, "ai_model", "")
+        if isinstance(single, str) and single.strip():
+            return [single.strip()]
+        return list(DEFAULT_AI_MODELS)
 
     def extract_job_id(self, url: str) -> str:
         """Извлекает ID вакансии из URL hh.ru (для базы "уже видел")."""
@@ -392,7 +366,7 @@ class HHClient:
 
         try:
             if path.is_file():
-                return path.read_text(encoding="utf-8").strip()
+                return path.read_text(encoding="utf-8").strip() + self._salary_facts()
         except Exception as e:
             report = getattr(logger, "warning", None)
             if report:
@@ -403,6 +377,24 @@ class HHClient:
             f"описанию вакансии, без конкретики."
         )
         return ""
+
+    def _salary_facts(self) -> str:
+        """Строка про зарплату и дату выхода, добавляется в конец базы фактов.
+
+        Зачем (19.10.2026). Промпт велит отвечать на вопрос о зарплате, а в
+        profile.md суммы нет, и модели её выдумывали: 200 000, 280 000, «выход
+        через 2 недели». Берём ту же HH_SALARY_EXPECTATION, что уходит в
+        анкетные вопросы, чтобы письмо и анкета не спорили друг с другом.
+        """
+        salary = str(getattr(self.cfg, "salary_expectation", "") or "").strip()
+        if not salary:
+            return ""
+        return (
+            "\n\n## Зарплата и дата выхода\n\n"
+            f"Зарплатные ожидания: {salary} руб. на руки в месяц. Называть только если\n"
+            "вакансия прямо просит указать зарплату.\n"
+            "Дата выхода: готов обсудить на собеседовании. Конкретную дату не называть."
+        )
 
     def _fill_prompt(self, template: str, job_description: str) -> str:
         """Подставить в промпт описание вакансии и базу фактов.
@@ -418,13 +410,15 @@ class HHClient:
         return template.format(**values)
 
     def _generate_cover_letter(self, job_description: str) -> str:
-        """Генерирует сопроводительное письмо используя OpenRouter API с поддержкой ротации ключей."""
-        if not self.key_rotator:
-            logger.error("Ротатор ключей не инициализирован. Проверьте OPENROUTER_API_KEY в .env")
+        """Генерирует сопроводительное письмо через OpenRouter.
+
+        Ротация ключей, повторы при 429 и переход на запасную модель живут в
+        OpenRouterClient (19.10.2026). Здесь только промпт и чистка ответа.
+        """
+        if not self.ai:
+            logger.error("Клиент нейросети не инициализирован. Проверьте OPENROUTER_API_KEY в .env")
             return ""
-        
-        url = "https://openrouter.ai/api/v1/chat/completions"
-        
+
         try:
             prompt_file = self._get_prompt_file()
             prompt_template = prompt_file.read_text(encoding="utf-8")
@@ -438,106 +432,16 @@ class HHClient:
 
         final_prompt = self._fill_prompt(prompt_template, job_description)
 
-        # Про размышляющие модели (03.10.2026).
-        #
-        # Qwen3.8 и подобные сначала думают про себя, и эти рассуждения тоже
-        # едят отведённые токены. При лимите в 1000 модель успевала только
-        # подумать, а поле с текстом письма возвращала пустым, и бот падал на
-        # попытке обрезать пробелы у пустоты.
-        #
-        # Поэтому: размышление выключаем явно, а запас токенов поднимаем. Письмо
-        # у нас 150-200 слов, но промпт длинный, и ответу нужен воздух.
-        data = {
-            "model": self.cfg.ai_model,
-            "messages": [
-                {"role": "user", "content": final_prompt}
-            ],
-            "max_tokens": 4000,
-            "temperature": 0.7,
-            "reasoning": {"enabled": False, "exclude": True},
-        }
-        
-        # Попыток столько, сколько ключей, но не меньше трёх (03.10.2026).
-        #
-        # Бесплатные модели регулярно отвечают 429: их общий поток поделён на
-        # всех желающих. Это не отказ, а просьба подождать, и через несколько
-        # секунд запрос обычно проходит. Без повторов на бесплатной модели
-        # пропускалась бы половина вакансий.
-        RETRY_PAUSE = 15
+        # Письмо 150-200 слов, но промпт длинный, и ответу нужен воздух:
+        # 4000 токенов с запасом (03.10.2026).
+        raw_letter = self.ai.complete(final_prompt, max_tokens=4000, temperature=0.7)
+        if not raw_letter:
+            logger.error("Сопроводительное письмо не получено ни от одной модели.")
+            return ""
 
-        max_attempts = max(3, len(self.key_rotator.api_keys))
-        
-        for attempt in range(max_attempts):
-            try:
-                current_key = self.key_rotator.get_current_key()
-                # Маскируем ключ для логирования
-                masked_key = current_key[:20] + "***" if len(current_key) > 20 else "***"
-                headers = {
-                    "Authorization": f"Bearer {current_key}",
-                    "Content-Type": "application/json",
-                    "HTTP-Referer": "https://hh.ru",
-                    "X-Title": "HH Auto Apply Bot",
-                }
-                
-                logger.debug(f"Отправка запроса к OpenRouter (ключ: {masked_key}...): {url}, модель: {self.cfg.ai_model}")
-                response = requests.post(url, headers=headers, json=data, timeout=60)
-                response.raise_for_status()
-                
-                result = response.json()
-
-                # Читаем ответ бережно: у размышляющих моделей поле с текстом
-                # бывает пустым, и раньше бот падал на этом с трассировкой на
-                # пол-экрана (03.10.2026).
-                choices = result.get("choices") or []
-                message = (choices[0].get("message") or {}) if choices else {}
-                raw_letter = (message.get("content") or "").strip()
-
-                if not raw_letter:
-                    finish = choices[0].get("finish_reason") if choices else None
-                    logger.warning(
-                        f"Модель вернула пустое письмо (причина завершения: {finish}). "
-                        f"Если это повторяется, смените модель в AI_MODEL на ту, что без размышлений."
-                    )
-                    return ""
-
-                # Убираем технические токены, которые могут добавлять некоторые модели
-                clean_letter = raw_letter.replace("<s>", "").replace("</s>", "").replace("[INST]", "").replace("[/INST]", "").strip()
-
-                logger.info("Сопроводительное письмо сгенерировано.")
-                return clean_letter
-                
-            except requests.exceptions.RequestException as e:
-                error_msg = str(e)
-                if hasattr(e, 'response') and e.response is not None:
-                    error_msg += f" | Response: {e.response.text[:200]}"
-                logger.warning(f"Ошибка при генерации письма (попытка {attempt + 1}/{max_attempts}): {error_msg}")
-                
-                is_rate_limit = "429" in error_msg or "Too Many Requests" in error_msg
-
-                if attempt < max_attempts - 1:
-                    # Другой ключ пробуем только если он есть. На лимите
-                    # провайдера смена ключа не помогает, помогает пауза.
-                    if self.key_rotator.has_multiple_keys() and not is_rate_limit:
-                        try:
-                            self.key_rotator.rotate_to_next()
-                            continue
-                        except ValueError:
-                            logger.error("Все API ключи исчерпаны")
-                            return ""
-
-                    if is_rate_limit:
-                        logger.info(f"Модель занята, жду {RETRY_PAUSE} секунд и пробую снова.")
-                        time.sleep(RETRY_PAUSE)
-                        continue
-
-                logger.error(f"Ошибка при генерации сопроводительного письма: {error_msg}")
-                return ""
-                    
-            except (KeyError, IndexError) as e:
-                logger.error(f"Ошибка парсинга ответа от API: {e}")
-                return ""
-        
-        return ""
+        letter = clean_letter(raw_letter)
+        logger.info("Сопроводительное письмо сгенерировано.")
+        return letter
 
     def get_apply_button(self, page: Page):
         candidates = [
@@ -1078,11 +982,10 @@ class HHClient:
             - для checkbox: {"answer": ["334283068", "334283069"]}  (список value)
             - для radio: {"answer": "334283074"}  (один value)
         """
-        if not self.key_rotator:
-            logger.warning("Ротатор ключей не инициализирован. Невозможно генерировать ответы.")
+        if not self.ai:
+            logger.warning("Клиент нейросети не инициализирован. Невозможно генерировать ответы.")
             return questions
 
-        api_url = "https://openrouter.ai/api/v1/chat/completions"
         result_questions = []
 
         for q in questions:
@@ -1193,53 +1096,16 @@ class HHClient:
                     result_questions.append(q_copy)
                     continue
 
-                # --- Запрос к API ---
-                data = {
-                    "model": self.cfg.ai_model,
-                    "messages": [{"role": "user", "content": answer_prompt}],
-                    "max_tokens": max(max_tokens, 1500),
-                    "temperature": 0.3,
-                    "reasoning": {"enabled": False, "exclude": True},
-                }
+                # --- Запрос к API: ротация ключей и запасные модели внутри клиента ---
+                raw_answer = self.ai.complete(
+                    answer_prompt,
+                    max_tokens=max(max_tokens, 1500),
+                    temperature=0.3,
+                    timeout=60,
+                )
 
-                max_attempts = len(self.key_rotator.api_keys) if self.key_rotator.has_multiple_keys() else 1
-                raw_answer = None
-
-                for attempt in range(max_attempts):
-                    try:
-                        current_key = self.key_rotator.get_current_key()
-                        headers = {
-                            "Authorization": f"Bearer {current_key}",
-                            "Content-Type": "application/json",
-                            "HTTP-Referer": "https://hh.ru",
-                            "X-Title": "HH Auto Apply Bot",
-                        }
-                        response = requests.post(api_url, headers=headers, json=data, timeout=30)
-                        response.raise_for_status()
-
-                        # Бережно, как и с письмом: размышляющая модель может
-                        # вернуть пустоту вместо текста (03.10.2026).
-                        payload = response.json()
-                        choices = payload.get("choices") or []
-                        message = (choices[0].get("message") or {}) if choices else {}
-                        raw_answer = (message.get("content") or "").strip() or None
-
-                        if raw_answer is None:
-                            logger.warning("Модель вернула пустой ответ на вопрос, поле оставляю пустым.")
-
-                        break
-                    except requests.exceptions.RequestException as e:
-                        logger.warning(f"Ошибка API (попытка {attempt + 1}): {e}")
-                        if self.key_rotator.has_multiple_keys() and attempt < max_attempts - 1:
-                            try:
-                                self.key_rotator.rotate_to_next()
-                            except ValueError:
-                                break
-                    except (KeyError, IndexError) as e:
-                        logger.error(f"Ошибка парсинга ответа API: {e}")
-                        break
-
-                if raw_answer is None:
+                if not raw_answer:
+                    logger.warning("Модель не ответила на вопрос, поле оставляю пустым.")
                     result_questions.append(q_copy)
                     continue
 
@@ -1249,7 +1115,7 @@ class HHClient:
                     logger.info(f"[textarea] '{question_text[:50]}' -> '{raw_answer[:60]}'")
 
                 else:
-                    clean_json = raw_answer.replace("```json", "").replace("```", "").strip()
+                    clean_json = strip_code_fence(raw_answer)
                     try:
                         parsed = json.loads(clean_json)
                         if field_type == "radio":
@@ -1401,12 +1267,12 @@ class HHClient:
             apply_btn = self.get_apply_button(page)
             generated_cover_letter = ""
             if self.cfg.use_ai_cover_letter:
-                if not self.key_rotator:
+                if not self.ai:
                     logger.error(
                         "Включена генерация писем, но ключ OPENROUTER_API_KEY не задан. "
                         "Отклик не отправляю."
                     )
-                    return ApplyResult.SKIPPED_FORM_INCOMPLETE, title
+                    return ApplyResult.SKIPPED_AI_UNAVAILABLE, title
 
                 logger.info("Генерация сопроводительного письма с помощью ИИ...")
                 job_description = self._fetch_job_description(page, url)
@@ -1427,7 +1293,10 @@ class HHClient:
                     "ИИ не смог написать письмо для этой вакансии. Отклик не отправляю, "
                     "чтобы не ушло запасное письмо не по стеку."
                 )
-                return ApplyResult.SKIPPED_FORM_INCOMPLETE, title
+                # Отдельный результат (19.10.2026): вакансия не виновата, её
+                # нельзя помечать просмотренной, иначе после сбоя нейросети
+                # бот за один прогон выжигает всю выдачу на 14 дней.
+                return ApplyResult.SKIPPED_AI_UNAVAILABLE, title
 
             final_cover_text = generated_cover_letter if generated_cover_letter else cover_text
 

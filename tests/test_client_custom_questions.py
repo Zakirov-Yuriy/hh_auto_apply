@@ -15,7 +15,8 @@ def mock_config():
     config.screenshots_dir = "screenshots"
     config.search_query = "python"
     config.use_ai_cover_letter = True
-    config.ai_model = "openai/gpt-oss-120b:free"
+    config.ai_model = "nvidia/nemotron-3.5-super-vl:free"
+    config.ai_models = ["nvidia/nemotron-3.5-super-vl:free"]
     config.base_url = "https://hh.ru"
     config.min_sleep = 1.0
     config.max_sleep = 2.0

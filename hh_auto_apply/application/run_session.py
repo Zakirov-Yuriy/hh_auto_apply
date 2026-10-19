@@ -156,10 +156,111 @@ class App:
                 return word
         return None
 
+    @property
+    def ai(self):
+        """Клиент нейросети площадки, если он есть (у LinkedIn его нет)."""
+        return getattr(self.client, "ai", None)
+
+    def _check_ai_before_start(self) -> bool:
+        """Проверяет нейросеть до открытия браузера (19.10.2026).
+
+        Раньше бот с мёртвым ключом или исчезнувшей моделью честно открывал
+        сотню вакансий, на каждой получал отказ и помечал её просмотренной.
+        Теперь при включённых письмах сначала спрашиваем OpenRouter про ключи
+        и модели (это бесплатно) и не стартуем, если писать некому.
+
+        Returns:
+            True, если можно запускаться.
+        """
+        if not self.cfg.use_ai_cover_letter or self.dry_run:
+            return True
+
+        if self.ai is None:
+            from hh_auto_apply.infrastructure.ai.openrouter import HOW_TO_FIX_KEYS, banner
+
+            banner(
+                "НЕЙРОСЕТЬ НЕДОСТУПНА: включена генерация писем (HH_USE_AI_COVER_LETTER=true), "
+                "а OPENROUTER_API_KEY в .env пуст.",
+                HOW_TO_FIX_KEYS,
+            )
+            return False
+
+        logger.info("Проверяю ключи и модели OpenRouter перед запуском...")
+        report = self.ai.preflight()
+        if not report.ok:
+            logger.error("Запуск отменён: нейросеть не сможет писать письма. Смотри сообщения выше.")
+            return False
+        if report.daily_remaining_total is not None:
+            logger.info(
+                f"Бесплатных запросов на сегодня суммарно: {report.daily_remaining_total}"
+            )
+        return True
+
+    def _record_result(
+        self, result: ApplyResult, vac_id: str, title: str, vurl: str, stats: Stats
+    ) -> bool:
+        """Учитывает исход отклика: счётчики, CSV, пометка «просмотрено».
+
+        Returns:
+            True, если отклик отправлен (нужно увеличить applies_done).
+        """
+        # Вакансии, где нейросеть не ответила, просмотренными не помечаем:
+        # к ним надо вернуться, когда ключи или модели оживут.
+        if result is not ApplyResult.SKIPPED_AI_UNAVAILABLE:
+            self.repo.mark_seen(vac_id)
+
+        if result is ApplyResult.SUCCESS:
+            stats.bump("applies_done")
+            try:
+                self._append_vacancy_to_csv(title if title else vurl, vurl)
+                logger.info(f"Сохранено в CSV: {title} — {vurl}")
+            except Exception as e:
+                logger.warning(f"Не удалось сохранить в CSV: {e}")
+            return True
+
+        if result is ApplyResult.SKIPPED_ALREADY_APPLIED:
+            stats.bump("skipped_already")
+            return False
+
+        if result is ApplyResult.SKIPPED_AI_UNAVAILABLE:
+            stats.bump("skipped_ai")
+            return False
+
+        if result in (ApplyResult.SKIPPED_EXTERNAL, ApplyResult.SKIPPED_FORM_INCOMPLETE):
+            # Это не сбой бота, а вакансии, на которые отклик через
+            # Easy Apply невозможен. Пишем в failed-файл с понятной
+            # причиной, но не считаем ошибками.
+            if result is ApplyResult.SKIPPED_EXTERNAL:
+                stats.bump("skipped_external")
+            else:
+                stats.bump("skipped_form")
+            try:
+                self._append_failed_vacancy_to_csv(title if title else vurl, vurl, result.value)
+            except Exception as e:
+                logger.warning(f"Не удалось сохранить причину в CSV: {e}")
+            return False
+
+        stats.bump("errors")
+        # Сохраняем ошибочные вакансии в отдельный файл
+        try:
+            error_type = result.value if hasattr(result, "value") else str(result)
+            self._append_failed_vacancy_to_csv(title if title else vurl, vurl, error_type)
+            logger.info(f"Ошибка сохранена в {self.failed_vacancies_csv}: {title} — {vurl}")
+        except Exception as e:
+            logger.warning(f"Не удалось сохранить ошибку в CSV: {e}")
+        return False
+
+    def _ai_stopped(self) -> bool:
+        """Нейросеть остановлена до конца запуска: дальше открывать вакансии незачем."""
+        return bool(self.cfg.use_ai_cover_letter and self.ai is not None and self.ai.stopped_reason)
+
     def run(self) -> int:
         logger.remove()
         logger.add(sys.stdout, level="DEBUG" if self.cfg.verbose else "INFO", colorize=True, format="<level>{message}</level>")
         logger.info(f"Запуск с конфигом: search_query={self.cfg.search_query!r} | resume_match={self.cfg.resume_match!r}")
+
+        if not self._check_ai_before_start():
+            return 2
 
         self.repo.cleanup(self.cfg.seen_ttl_days)
         Path(self.cfg.screenshots_dir).mkdir(parents=True, exist_ok=True)
@@ -245,44 +346,17 @@ class App:
                         else:
                             result, title = self.client.apply_to_vacancy(context, vurl, cover_text)
 
-                        self.repo.mark_seen(vac_id)
-
-                        if result is ApplyResult.SUCCESS:
+                        if self._record_result(result, vac_id, title, vurl, stats):
                             applies_done += 1
-                            stats.bump("applies_done")
-                            try:
-                                self._append_vacancy_to_csv(title if title else vurl, vurl)
-                                logger.info(f"Сохранено в CSV: {title} — {vurl}")
-                            except Exception as e:
-                                logger.warning(f"Не удалось сохранить в CSV: {e}")
-                        elif result is ApplyResult.SKIPPED_ALREADY_APPLIED:
-                            stats.bump("skipped_already")
-                        elif result in (
-                            ApplyResult.SKIPPED_EXTERNAL,
-                            ApplyResult.SKIPPED_FORM_INCOMPLETE,
-                        ):
-                            # Это не сбой бота, а вакансии, на которые отклик через
-                            # Easy Apply невозможен. Пишем в failed-файл с понятной
-                            # причиной, но не считаем ошибками.
-                            if result is ApplyResult.SKIPPED_EXTERNAL:
-                                stats.bump("skipped_external")
-                            else:
-                                stats.bump("skipped_form")
-                            try:
-                                self._append_failed_vacancy_to_csv(
-                                    title if title else vurl, vurl, result.value
-                                )
-                            except Exception as e:
-                                logger.warning(f"Не удалось сохранить причину в CSV: {e}")
-                        else:
-                            stats.bump("errors")
-                            # Сохраняем ошибочные вакансии в отдельный файл
-                            try:
-                                error_type = result.value if hasattr(result, 'value') else str(result)
-                                self._append_failed_vacancy_to_csv(title if title else vurl, vurl, error_type)
-                                logger.info(f"Ошибка сохранена в {self.failed_vacancies_csv}: {title} — {vurl}")
-                            except Exception as e:
-                                logger.warning(f"Не удалось сохранить ошибку в CSV: {e}")
+
+                        if self._ai_stopped():
+                            logger.error(
+                                "Нейросеть остановлена, дальше открывать вакансии незачем: "
+                                "письма не будет. Завершаю прогон, вакансии не помечены "
+                                "просмотренными и дождутся следующего запуска."
+                            )
+                            self._stop = True
+                            break
 
                         human_pause(self.cfg)
 
@@ -301,11 +375,16 @@ class App:
             logger.info(f"Пропущено (уже отклик):      {stats.skipped_already}")
             logger.info(f"Пропущено (внешняя форма):   {stats.skipped_external}")
             logger.info(f"Пропущено (форма с вопросами):{stats.skipped_form}")
+            logger.info(f"Пропущено (нейросеть молчит):{stats.skipped_ai}")
             logger.info(f"Открыто/обработано:          {stats.opened}")
             logger.info(f"Успешных откликов:           {stats.applies_done}")
             logger.info(f"Ошибок (сбои бота):          {stats.errors}")
             logger.info(f"Процент успешности:          {success_rate:.1f}%")
             logger.info(f"Лимит откликов (MAX):        {self.cfg.max_applies}")
             logger.info(f"Время работы:                {elapsed:.2f} сек")
+            if self.ai is not None and self.cfg.use_ai_cover_letter:
+                logger.info("---------- нейросеть ----------")
+                for line in self.ai.report_lines():
+                    logger.info(line)
             logger.info("========== /ОТЧЁТ ==========")
         return 0

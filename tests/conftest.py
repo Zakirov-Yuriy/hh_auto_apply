@@ -42,5 +42,7 @@ def mock_config() -> Config:
     config.use_ai_cover_letter = False
     config.openrouter_api_keys = []
     config.ai_prompts_dir = Path("data")
-    config.ai_model = "openai/gpt-oss-120b:free"
+    config.ai_model = "nvidia/nemotron-3.5-super-vl:free"
+    config.ai_models = ["nvidia/nemotron-3.5-super-vl:free"]
+    config.salary_expectation = "130000"
     return config

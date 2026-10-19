@@ -9,6 +9,9 @@ class ApplyResult(str, Enum):
     SKIPPED_ALREADY_APPLIED = "skipped_already_applied"
     SKIPPED_EXTERNAL = "external_form"  # внешняя форма / нет Easy Apply
     SKIPPED_FORM_INCOMPLETE = "form_needs_data"  # Easy Apply требует данных, которые бот не заполняет
+    # Нейросеть не написала письмо (лимит, ключ, модель). Вакансия ни при чём,
+    # поэтому просмотренной её не помечаем и вернёмся к ней в следующий раз.
+    SKIPPED_AI_UNAVAILABLE = "ai_unavailable"
     ERROR = "error"
 
 
@@ -20,6 +23,7 @@ class Stats:
     skipped_stop_word: int = 0
     skipped_external: int = 0
     skipped_form: int = 0
+    skipped_ai: int = 0
     opened: int = 0
     applies_done: int = 0
     errors: int = 0
