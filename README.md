@@ -121,7 +121,7 @@ HH_STOP_WORDS="QA,Тестировщик,DevOps,1С,Tech Lead,Team Lead,Bitrix,B
 ```dotenv
 HH_USE_AI_COVER_LETTER="true"
 OPENROUTER_API_KEY="sk-or-v1-...,sk-or-v1-..."
-AI_MODEL="nvidia/nemotron-3.5-super-vl:free,nvidia/nemotron-3-ultra-550b-a55b:free,nvidia/nemotron-3-super-120b-a12b:free,google/gemma-4-31b-it:free"
+AI_MODEL="nvidia/nemotron-3.5-super-vl:free,nvidia/nemotron-3-ultra-550b-a55b:free,google/gemma-4-31b-it:free,google/gemma-4-26b-a4b-it:free"
 ```
 
 Ключ берётся на openrouter.ai, раздел API Keys. Показывается он один раз,
@@ -131,9 +131,10 @@ AI_MODEL="nvidia/nemotron-3.5-super-vl:free,nvidia/nemotron-3-ultra-550b-a55b:fr
 
 Моделей тоже может быть несколько, через запятую, в порядке предпочтения.
 Бесплатные модели приходят и уходят (`qwen/qwen3.8-27b:free` исчезла в октябре
-2026), поэтому бот держит цепочку: не ответила первая, берёт вторую, и так до
+2026, `nvidia/nemotron-3-super-120b-a12b:free` 9 ноября 2026), поэтому бот держит цепочку: не ответила первая, берёт вторую, и так до
 конца списка. Список бесплатных моделей: openrouter.ai/models?q=free.
-Цепочка выше сверена 19.10.2026 на реальном промпте письма:
+Цепочка выше сверена по каталогу 09.11.2026; качество первой модели проверено
+19.10.2026 на реальном промпте письма:
 `nemotron-3.5-super-vl` отвечает за 8-26 секунд, пишет чистый русский без
 длинных тире и не выдумывает факты, которых нет в `profile.md`.
 
