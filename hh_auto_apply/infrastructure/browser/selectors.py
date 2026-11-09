@@ -24,6 +24,11 @@ class Selectors:
     VACANCY_TITLE_QA = '[data-qa="vacancy-title"]'
     VACANCY_TITLE_VIEW_QA = '[data-qa="vacancy-view-title"]'
     VACANCY_TITLE_CLASS = '.vacancy-title'
+    # Шапка вакансии для промпта письма, когда HH API недоступен (19.10.2026).
+    VACANCY_COMPANY_QA = '[data-qa="vacancy-company-name"]'
+    VACANCY_EXPERIENCE_QA = '[data-qa="vacancy-experience"]'
+    VACANCY_KEY_SKILL_QA = '[data-qa="skills-element"]'
+    VACANCY_DESCRIPTION_QA = 'div[data-qa="vacancy-description"]'
 
     # --- Apply Modal ---
     RESUME_SELECT_ITEM = '[data-qa="resume-select_item"]'

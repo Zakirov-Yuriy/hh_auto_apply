@@ -103,6 +103,7 @@ Nest JS, Prisma и GraphQL в бою не использовал.»
 
 Приложение ЛИДЛЕ в RuStore: https://www.rustore.ru/catalog/app/io.lidle.app
 Площадка ЛИДЛЕ: https://lidle.ru
+Приложение ЛИДЛЕ в Google Play:https://play.google.com/store/apps/details?id=io.lidle.app
 Home Fitness в Google Play: https://play.google.com/store/apps/details?id=com.zak.home_fitness
 Портфолио: https://portfolio-eight-rouge-59.vercel.app/
 GitHub: https://github.com/Zakirov-Yuriy

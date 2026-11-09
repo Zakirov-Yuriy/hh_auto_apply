@@ -328,8 +328,16 @@ class HHClient:
         return self._get_vacancy_description(page)
 
     def _get_vacancy_description(self, page: Page) -> str:
+        """Описание вакансии со страницы, в том же формате, что даёт HH API.
+
+        До 19.10.2026 в промпт уходил только текст блока описания: без
+        названия роли, компании и ключевых навыков. А промпт требует точное
+        название роли в первом абзаце и навыки словами вакансии, и модели
+        брали их из середины текста наугад. Теперь шапка собирается с той же
+        страницы и подаётся через format_for_prompt, как и данные API.
+        """
         description_selectors = [
-            'div[data-qa="vacancy-description"]',
+            Selectors.VACANCY_DESCRIPTION_QA,
             'div[data-qa="job-description"]',
             'div[class*="vacancy-description"]',
             'div[class*="job-description"]',
@@ -339,17 +347,61 @@ class HHClient:
             'div[class*="vacancy-content"]',
             'div[class*="content"]',
         ]
+        description = ""
         for sel in description_selectors:
             try:
                 desc_element = page.locator(sel)
                 if desc_element.count() > 0 and self.is_visible(desc_element, timeout=500):
                     text = desc_element.inner_text()
                     if text and len(text.strip()) > 50:  # Ensure it's a substantial description
-                        return text.strip()
+                        description = text.strip()
+                        break
             except Exception:
                 continue
-        logger.warning("Не удалось найти описание вакансии.")
-        return ""
+
+        if not description:
+            logger.warning("Не удалось найти описание вакансии.")
+            return ""
+
+        vacancy = self._vacancy_header_from_page(page)
+        vacancy["description"] = description
+        return format_for_prompt(vacancy)
+
+    def _vacancy_header_from_page(self, page: Page) -> dict:
+        """Название, компания, опыт и ключевые навыки со страницы вакансии.
+
+        Любое поле может отсутствовать: тогда его просто не будет в промпте.
+        """
+        header: dict = {}
+
+        def first_text(selector: str) -> str:
+            try:
+                loc = page.locator(selector)
+                if loc.count() > 0:
+                    return (loc.first.inner_text() or "").strip()
+            except Exception as e:
+                logger.debug(f"Шапка вакансии: {selector} не прочитан: {e}")
+            return ""
+
+        header["title"] = first_text(Selectors.VACANCY_TITLE_QA) or first_text(Selectors.VACANCY_TITLE_H1)
+        header["company"] = first_text(Selectors.VACANCY_COMPANY_QA)
+        header["experience"] = first_text(Selectors.VACANCY_EXPERIENCE_QA)
+
+        skills: list[str] = []
+        try:
+            loc = page.locator(Selectors.VACANCY_KEY_SKILL_QA)
+            for i in range(min(loc.count(), 30)):
+                raw = (loc.nth(i).inner_text() or "").strip()
+                # Работодатели иногда пишут все навыки в один тег через «•».
+                for part in raw.replace("•", "\n").splitlines():
+                    part = part.strip(" \t•·,;")
+                    if part and part not in skills:
+                        skills.append(part)
+        except Exception as e:
+            logger.debug(f"Шапка вакансии: ключевые навыки не прочитаны: {e}")
+        header["key_skills"] = skills
+
+        return header
 
     def _profile_facts(self) -> str:
         """База фактов о кандидате из data/profile.md (03.10.2026).

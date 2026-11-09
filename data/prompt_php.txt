@@ -103,6 +103,7 @@ Nest JS, Prisma и GraphQL в бою не использовал.»
 ШАГ 6. Подпись, добавляется всегда без изменений
 
 Площадка ЛИДЛЕ: https://lidle.ru
+Приложение ЛИДЛЕ в Google Play:https://play.google.com/store/apps/details?id=io.lidle.app
 Приложение ЛИДЛЕ в RuStore: https://www.rustore.ru/catalog/app/io.lidle.app
 Портфолио: https://portfolio-eight-rouge-59.vercel.app/
 GitHub: https://github.com/Zakirov-Yuriy
