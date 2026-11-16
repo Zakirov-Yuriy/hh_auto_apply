@@ -35,6 +35,8 @@ def mock_config() -> Config:
     config.max_pages = 100
     config.empty_pages_tolerance = 3
     config.headless = True
+    config.captcha_wait_minutes = 0.0
+    config.captcha_beep_every = 20.0
     config.slow_mo_ms = 0
     config.verbose = False
     config.vacancies_csv = "data/vacancies.csv"

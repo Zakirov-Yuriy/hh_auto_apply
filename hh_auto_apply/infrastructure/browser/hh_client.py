@@ -6,6 +6,8 @@ from typing import Dict, List
 from urllib.parse import urlencode
 
 import json
+import sys
+import time
 
 from loguru import logger
 from playwright._impl._errors import TargetClosedError
@@ -24,6 +26,10 @@ from hh_auto_apply.infrastructure.ai.vacancy_api import (
 )
 from hh_auto_apply.infrastructure.browser.selectors import Selectors
 from hh_auto_apply.infrastructure.utils import extract_vacancy_id, human_pause
+
+
+class CaptchaNotSolved(Exception):
+    """Капчу не ввели за отведённое время (HH_CAPTCHA_WAIT_MINUTES)."""
 
 
 class HHClient:
@@ -151,6 +157,82 @@ class HHClient:
             f"Ожидалось одно из: prompt_flutter.txt, prompt_fullstack.txt, prompt_php.txt\n"
             f"Найденные файлы: {[f.name for f in available_files] or 'нет'}"
         )
+
+    # --------- Капча (16.11.2026) ---------
+    # Решать капчу бот не пытается. Он замечает окно «Пройдите капчу», пищит,
+    # выводит окно браузера наверх и ждёт, пока человек введёт текст руками.
+    # Как только окно исчезло, отклик продолжается сам.
+    def captcha_visible(self, page: Page) -> bool:
+        try:
+            if "captcha" in (page.url or "").lower():
+                return True
+        except Exception:
+            pass
+        for sel in Selectors.CAPTCHA_MARKERS:
+            try:
+                loc = page.locator(sel)
+                if loc.count() > 0 and loc.first.is_visible():
+                    return True
+            except Exception:
+                continue
+        return False
+
+    @staticmethod
+    def _beep() -> None:
+        try:
+            if sys.platform.startswith("win"):
+                import winsound
+
+                for freq in (880, 1175, 1568):
+                    winsound.Beep(freq, 250)
+            else:
+                for _ in range(3):
+                    sys.stdout.write("\a")
+                    sys.stdout.flush()
+                    time.sleep(0.25)
+        except Exception:
+            pass
+
+    def wait_for_manual_captcha(self, page: Page) -> bool:
+        """Если на странице капча, ждёт, пока её введут руками.
+
+        Returns:
+            True, если капча была и её решили; False, если капчи не было.
+        Raises:
+            CaptchaNotSolved: капчу не ввели за HH_CAPTCHA_WAIT_MINUTES.
+        """
+        if not self.captcha_visible(page):
+            return False
+
+        limit_min = float(getattr(self.cfg, "captcha_wait_minutes", 0) or 0)
+        beep_every = max(5.0, float(getattr(self.cfg, "captcha_beep_every", 20) or 20))
+        limit_txt = f"до {limit_min:g} мин" if limit_min > 0 else "без ограничения по времени"
+        logger.warning(
+            f"⚠️  КАПЧА! Введи текст с картинки в окне браузера и нажми «Отправить». "
+            f"Бот на паузе и ждёт ({limit_txt})."
+        )
+        try:
+            page.bring_to_front()
+        except Exception:
+            pass
+
+        started = time.monotonic()
+        last_beep = 0.0
+        while self.captcha_visible(page):
+            now = time.monotonic()
+            if limit_min > 0 and now - started > limit_min * 60:
+                self.make_shot(page, "captcha_timeout")
+                logger.error("Капчу не ввели вовремя. Вакансию пропускаю, вернусь к ней позже.")
+                raise CaptchaNotSolved()
+            if now - last_beep >= beep_every:
+                self._beep()
+                last_beep = time.monotonic()
+            page.wait_for_timeout(1000)
+
+        waited = int(time.monotonic() - started)
+        logger.success(f"Капча введена (ждал {waited} с). Продолжаю отклик.")
+        page.wait_for_timeout(1500)
+        return True
 
     def make_shot(self, page: Page, tag: str) -> None:
         """Сохраняет скриншот вакансии в папку, соответствующую типу.
@@ -759,6 +841,16 @@ class HHClient:
         logger.warning("Не удалось подтвердить наличие сопроводительного письма в форме.")
         return False
 
+    def _confirm_sent(self, page: Page) -> bool:
+        """После клика «Отправить»: ждём капчу (если вылезла) и проверяем отклик."""
+        for _ in range(2):
+            page.wait_for_timeout(1500)
+            self.wait_for_manual_captcha(page)
+            if self.already_applied(page):
+                logger.success("Отклик отправлен ✅")
+                return True
+        return False
+
     def add_cover_letter_and_submit(self, page: Page, cover_text: str) -> bool:
         letter_ok = self.fill_cover_letter_with_verification(page, cover_text)
         if self.cfg.require_cover_letter and not letter_ok:
@@ -801,6 +893,8 @@ class HHClient:
             return None
 
         for _ in range(3):
+            # Пока висит капча, её «Отправить» нельзя путать с кнопкой отклика.
+            self.wait_for_manual_captcha(page)
             btn = find_enabled_submit()
             if btn:
                 try:
@@ -810,28 +904,20 @@ class HHClient:
                 human_pause(self.cfg) # Initial pause before click
                 try:
                     btn.click(force=True)
-                    page.wait_for_timeout(1500) # Wait after click
-                    if self.already_applied(page):
-                        logger.success("Отклик отправлен ✅")
+                    if self._confirm_sent(page):
                         return True
-                    page.wait_for_timeout(1500) # Wait again
-                    if self.already_applied(page):
-                        logger.success("Отклик отправлен ✅")
-                        return True
+                except CaptchaNotSolved:
+                    raise
                 except Exception as e:
                     logger.warning(f"Клик по кнопке отправки не удался: {e}")
                     # If click failed, try to dismiss potential overlays or retry click
                     human_pause(self.cfg, 2, 4) # Longer pause to allow overlays to disappear
                     try:
                         btn.click(force=True) # Retry click
-                        page.wait_for_timeout(1500)
-                        if self.already_applied(page):
-                            logger.success("Отклик отправлен ✅")
+                        if self._confirm_sent(page):
                             return True
-                        page.wait_for_timeout(1500)
-                        if self.already_applied(page):
-                            logger.success("Отклик отправлен ✅")
-                            return True
+                    except CaptchaNotSolved:
+                        raise
                     except Exception as e_retry:
                         logger.warning(f"Повторный клик по кнопке отправки не удался: {e_retry}")
             else:
@@ -1368,6 +1454,9 @@ class HHClient:
                         page.wait_for_timeout(1500)
                     except Exception as e:
                         logger.warning(f"Не удалось нажать кнопку в модальном окне: {e}")
+
+                # Капча может вылезти уже на нажатии «Откликнуться».
+                self.wait_for_manual_captcha(page)
             # --- Конец обработки модального окна ---
             
             # --- Обработка кастомных вопросов ---
@@ -1394,6 +1483,8 @@ class HHClient:
             # page.close()
             return (ApplyResult.SUCCESS, title) if ok else (ApplyResult.ERROR, title)
 
+        except CaptchaNotSolved:
+            return ApplyResult.SKIPPED_CAPTCHA, title
         except PWTimeoutError:
             logger.error("Таймаут при открытии вакансии.")
             if page: # Check if page is not None before making a screenshot

@@ -12,6 +12,9 @@ class ApplyResult(str, Enum):
     # Нейросеть не написала письмо (лимит, ключ, модель). Вакансия ни при чём,
     # поэтому просмотренной её не помечаем и вернёмся к ней в следующий раз.
     SKIPPED_AI_UNAVAILABLE = "ai_unavailable"
+    # Капчу так и не ввели за HH_CAPTCHA_WAIT_MINUTES. Вакансия ни при чём:
+    # просмотренной не помечаем, вернёмся к ней в следующий раз.
+    SKIPPED_CAPTCHA = "captcha_not_solved"
     ERROR = "error"
 
 
@@ -24,6 +27,7 @@ class Stats:
     skipped_external: int = 0
     skipped_form: int = 0
     skipped_ai: int = 0
+    skipped_captcha: int = 0
     opened: int = 0
     applies_done: int = 0
     errors: int = 0

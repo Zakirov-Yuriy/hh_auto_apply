@@ -54,3 +54,15 @@ class Selectors:
 
     # --- Modals ---
     FOREIGN_COUNTRY_MODAL_BUTTON = 'button:has-text("Все равно откликнуться")'
+
+    # --- Капча (16.11.2026) ---
+    # hh.ru показывает окно «Пройдите капчу» с картинкой и полем «Текст с картинки».
+    # Ищем по нескольким признакам: data-qa у hh меняется, текст держится дольше.
+    CAPTCHA_MARKERS = [
+        'input[placeholder*="Текст с картинки"]',
+        'input[placeholder*="текст с картинки"]',
+        '[data-qa*="captcha"]',
+        'img[src*="captcha"]',
+        'text="Пройдите капчу"',
+    ]
+

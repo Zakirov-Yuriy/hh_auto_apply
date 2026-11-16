@@ -122,6 +122,11 @@ class Config:
     hh_api_user_agent: str = "ZakirovCoverLetter/1.0 (zak.yuri@yandex.ru)"
     # Стоп-слова для фильтрации вакансий по названию
     stop_words: List[str] | None = None
+    # Капча (16.11.2026): бот пищит и ждёт, пока человек введёт её руками.
+    # captcha_wait_minutes = 0 значит ждать сколько угодно.
+    captcha_wait_minutes: float = 0.0
+    # Как часто повторять звуковой сигнал, пока капча не решена (секунды).
+    captcha_beep_every: float = 20.0
 
     @staticmethod
     def from_env() -> "Config":
@@ -193,4 +198,6 @@ class Config:
                 "ZakirovCoverLetter/1.0 (zak.yuri@yandex.ru)",
             ).strip(),
             stop_words=stop_words or [],
+            captcha_wait_minutes=float(os.getenv("HH_CAPTCHA_WAIT_MINUTES", "0") or 0),
+            captcha_beep_every=float(os.getenv("HH_CAPTCHA_BEEP_EVERY", "20") or 20),
         )

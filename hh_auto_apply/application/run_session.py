@@ -206,7 +206,7 @@ class App:
         """
         # Вакансии, где нейросеть не ответила, просмотренными не помечаем:
         # к ним надо вернуться, когда ключи или модели оживут.
-        if result is not ApplyResult.SKIPPED_AI_UNAVAILABLE:
+        if result not in (ApplyResult.SKIPPED_AI_UNAVAILABLE, ApplyResult.SKIPPED_CAPTCHA):
             self.repo.mark_seen(vac_id)
 
         if result is ApplyResult.SUCCESS:
@@ -224,6 +224,10 @@ class App:
 
         if result is ApplyResult.SKIPPED_AI_UNAVAILABLE:
             stats.bump("skipped_ai")
+            return False
+
+        if result is ApplyResult.SKIPPED_CAPTCHA:
+            stats.bump("skipped_captcha")
             return False
 
         if result in (ApplyResult.SKIPPED_EXTERNAL, ApplyResult.SKIPPED_FORM_INCOMPLETE):
@@ -376,6 +380,7 @@ class App:
             logger.info(f"Пропущено (внешняя форма):   {stats.skipped_external}")
             logger.info(f"Пропущено (форма с вопросами):{stats.skipped_form}")
             logger.info(f"Пропущено (нейросеть молчит):{stats.skipped_ai}")
+            logger.info(f"Пропущено (капча не введена):{stats.skipped_captcha}")
             logger.info(f"Открыто/обработано:          {stats.opened}")
             logger.info(f"Успешных откликов:           {stats.applies_done}")
             logger.info(f"Ошибок (сбои бота):          {stats.errors}")
