@@ -112,7 +112,11 @@ class Config:
     openrouter_api_keys: List[str] | None = None
     ai_prompts_dir: Path = Path("data")  # Директория с файлами промптов
     ai_prompt_path: str = ""  # Явный файл промпта (имеет приоритет над автовыбором)
-    salary_expectation: str = "130000"  # Сумма для зарплатных вопросов (на руки)
+    # Зарплатные ожидания на руки (17.11.2026: были зашиты 130 000, в резюме 230-250 тыс.).
+    # salary_expectation: нижняя граница, она же число для числовых полей.
+    # salary_max: верхняя граница; пусто = отвечаем «от N».
+    salary_expectation: str = "230000"
+    salary_max: str = "250000"
     # Модели OpenRouter в порядке предпочтения. ai_model оставлен для логов и
     # старого кода: это всегда первая модель из ai_models.
     ai_model: str = DEFAULT_AI_MODELS[0]
@@ -191,7 +195,8 @@ class Config:
             openrouter_api_keys=openrouter_api_keys or [],
             ai_prompts_dir=Path(os.getenv("AI_PROMPTS_DIR", "data")),
             ai_prompt_path=os.getenv("AI_PROMPT_PATH", "").strip().strip('"').strip("'"),
-            salary_expectation=os.getenv("HH_SALARY_EXPECTATION", "130000").strip().strip('"').strip("'"),
+            salary_expectation=os.getenv("HH_SALARY_EXPECTATION", "230000").strip().strip('"').strip("'"),
+            salary_max=os.getenv("HH_SALARY_MAX", "250000").strip().strip('"').strip("'"),
             ai_model=ai_models[0],
             ai_models=ai_models,
             use_hh_api_first=os.getenv("HH_USE_API_FIRST", "true").lower() == "true",

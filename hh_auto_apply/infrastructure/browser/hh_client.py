@@ -6,6 +6,7 @@ from typing import Dict, List
 from urllib.parse import urlencode
 
 import json
+import re
 import sys
 import time
 
@@ -38,6 +39,8 @@ class HHClient:
 
     def __init__(self, cfg: Config):
         self.cfg = cfg
+        # Зарплата из выбранного резюме; сбрасывается на каждой вакансии.
+        self.resume_salary = ""
         Path(cfg.screenshots_dir).mkdir(parents=True, exist_ok=True)
 
         # Клиент нейросети: ротация ключей и цепочка запасных моделей
@@ -521,6 +524,48 @@ class HHClient:
         )
         return ""
 
+    @staticmethod
+    def _money(value: str) -> str:
+        """230000 -> «230 000»; не число оставляем как есть."""
+        digits = "".join(ch for ch in str(value) if ch.isdigit())
+        return f"{int(digits):,}".replace(",", " ") if digits else str(value).strip()
+
+    @staticmethod
+    def _salary_from_text(text: str) -> str:
+        """«senior backend developer 230 000 ₽» -> «230000»."""
+        m = re.search(r"(\d[\d\s\u00a0\u202f]{2,})\s*(?:₽|руб)", text or "")
+        return re.sub(r"\D", "", m.group(1)) if m else ""
+
+    def salary_number(self) -> str:
+        """Одно число для числовых полей.
+
+        Сначала сумма из выбранного резюме (её видит работодатель), иначе
+        нижняя граница из HH_SALARY_EXPECTATION.
+        """
+        if getattr(self, "resume_salary", ""):
+            return self.resume_salary
+        raw = str(getattr(self.cfg, "salary_expectation", "") or "")
+        m = re.search(r"\d[\d\s]*", raw)
+        return re.sub(r"\s", "", m.group(0)) if m else ""
+
+    def salary_text(self) -> str:
+        """Ответ на зарплатный вопрос: «от 230 000 до 250 000 руб. на руки».
+
+        Если в выбранном резюме указана сумма, отвечаем ею, чтобы ответ не
+        спорил с резюме, которое работодатель видит рядом.
+        """
+        if getattr(self, "resume_salary", ""):
+            return f"от {self._money(self.resume_salary)} руб. на руки"
+        low = str(getattr(self.cfg, "salary_expectation", "") or "").strip()
+        high = str(getattr(self.cfg, "salary_max", "") or "").strip()
+        if not low:
+            return ""
+        if not any(ch.isdigit() for ch in low):
+            return low  # в .env написали фразу целиком, отдаём как есть
+        if high and any(ch.isdigit() for ch in high):
+            return f"от {self._money(low)} до {self._money(high)} руб. на руки"
+        return f"от {self._money(low)} руб. на руки"
+
     def _salary_facts(self) -> str:
         """Строка про зарплату и дату выхода, добавляется в конец базы фактов.
 
@@ -529,12 +574,12 @@ class HHClient:
         через 2 недели». Берём ту же HH_SALARY_EXPECTATION, что уходит в
         анкетные вопросы, чтобы письмо и анкета не спорили друг с другом.
         """
-        salary = str(getattr(self.cfg, "salary_expectation", "") or "").strip()
+        salary = self.salary_text()
         if not salary:
             return ""
         return (
             "\n\n## Зарплата и дата выхода\n\n"
-            f"Зарплатные ожидания: {salary} руб. на руки в месяц. Называть только если\n"
+            f"Зарплатные ожидания: {salary} в месяц. Называть только если\n"
             "вакансия прямо просит указать зарплату.\n"
             "Дата выхода: готов обсудить на собеседовании. Конкретную дату не называть."
         )
@@ -753,6 +798,9 @@ class HHClient:
                 elif radio is not None and radio.count() > 0:
                     radio.check(force=True)
                 logger.info(f'  >>> ВЫБРАНА карточка #{best_i} (совпадение {best_score:.0%})')
+                self.resume_salary = self._salary_from_text(text)
+                if self.resume_salary:
+                    logger.info(f"  Зарплата в выбранном резюме: {self._money(self.resume_salary)} ₽")
                 return True
             except Exception as e:
                 logger.warning(f"Не удалось кликнуть карточку #{best_i}: {e}")
@@ -1064,7 +1112,7 @@ class HHClient:
         """
         context = {
             "title": "Python Backend Developer",  # Default
-            "salary": "130000",
+            "salary": self.salary_text() or "по договорённости",
             "currency": "RUR",
             "experience_years": "3",
             "skills": "Python, Flutter, Full-stack",
@@ -1094,14 +1142,10 @@ class HHClient:
                 except Exception:
                     continue
             
-            # Ищем зарплату - получаем весь текст страницы и ищем паттерны
-            try:
-                page_text = page.locator("body").inner_text(timeout=2000)
-                if "130" in page_text and "₽" in page_text:
-                    context["salary"] = "130000"
-            except Exception:
-                pass
-            
+            # Зарплату со страницы больше не угадываем (17.11.2026): старая
+            # проверка подставляла 130 000 при любом «130» и «₽» на странице.
+            # Сумма берётся только из HH_SALARY_EXPECTATION / HH_SALARY_MAX.
+
             logger.debug(f"Контекст резюме: {context}")
             
         except Exception as e:
@@ -1185,8 +1229,7 @@ class HHClient:
                         is_salary = True
 
                 if is_salary:
-                    salary_amount = (self.cfg.salary_expectation
-                                     or resume_context.get("salary", "130000"))
+                    salary_amount = self.salary_text() or resume_context.get("salary", "")
                     q_copy["answer"] = salary_amount
                     logger.info(f"Зарплатный вопрос: подставляю '{salary_amount}'")
                     result_questions.append(q_copy)
@@ -1197,7 +1240,7 @@ class HHClient:
                     f"Должность: {resume_context.get('title')}\n"
                     f"Опыт: {resume_context.get('experience_years')} лет\n"
                     f"Навыки: {resume_context.get('skills')}\n"
-                    f"Зарплатные ожидания: {resume_context.get('salary')} руб.\n"
+                    f"Зарплатные ожидания: {resume_context.get('salary')}\n"
                     f"Образование: {resume_context.get('education')}"
                 )
 
@@ -1377,6 +1420,7 @@ class HHClient:
 
     def apply_to_vacancy(self, context: BrowserContext, url: str, cover_text: str) -> tuple[ApplyResult, str]:
         logger.info(f"Открываю вакансию: {url}")
+        self.resume_salary = ""
         page = None # Initialize page to None
         title = ""  # Initialize title to empty stringё
         try:

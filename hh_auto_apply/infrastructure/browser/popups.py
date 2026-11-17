@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING, Dict, List, Optional
 
 from loguru import logger
@@ -101,18 +102,39 @@ class PopupHandler:
         return found
 
     def _is_response_form(self, dialog: Locator) -> bool:
+        # Окно «вакансия в другой стране» тоже про отклик, но его надо подтвердить.
+        try:
+            if dialog.locator(Selectors.FOREIGN_COUNTRY_MODAL_BUTTON).count() or \
+                    dialog.locator('button:has-text("Всё равно откликнуться")').count():
+                return False
+        except Exception:
+            pass
         for sel in Selectors.RESPONSE_FORM_MARKERS:
             try:
                 if dialog.locator(sel).count() > 0:
                     return True
             except Exception:
                 continue
+        # 17.11.2026: data-qa у hh поменялись, и форма «Откликнуться» с тремя
+        # карточками резюме принималась за постороннее окно. Подстраховка по тексту.
+        title = self._dialog_title(dialog).lower()
+        if title.startswith("откликнуться") or title.startswith("отклик на вакансию"):
+            return True
+        text = self._signature(dialog).lower()
+        if any(m in text for m in Selectors.RESPONSE_FORM_TEXTS):
+            return True
+        # Карточки резюме с зарплатой: радиокнопки рядом с «₽».
+        try:
+            if dialog.locator('input[type="radio"]').count() > 1 and "₽" in text:
+                return True
+        except Exception:
+            pass
         return False
 
     @staticmethod
     def _signature(dialog: Locator) -> str:
         try:
-            return (dialog.inner_text(timeout=1000) or "").strip()[:300]
+            return (dialog.inner_text(timeout=1000) or "").strip()[:2000]
         except Exception:
             return ""
 
@@ -298,8 +320,14 @@ class PopupHandler:
                 logger.warning(f"[окно] Поле «{label[:40]}» осталось пустым: нет ответа нейросети.")
                 continue
             if self._attr(el, "type") == "number":
-                digits = "".join(ch for ch in str(answer) if ch.isdigit())
-                answer = digits or answer
+                # В числовое поле только одно число. Для зарплаты это нижняя
+                # граница ожиданий, иначе «от 230 000 до 250 000» склеилось бы
+                # в 230000250000.
+                if any(w in (label + title).lower() for w in ("зарплат", "доход", "оклад", "ожидан")):
+                    answer = self.client.salary_number() or answer
+                else:
+                    m = re.search(r"\d+", str(answer).replace(" ", ""))
+                    answer = m.group(0) if m else answer
             try:
                 el.click()
                 el.fill(str(answer))

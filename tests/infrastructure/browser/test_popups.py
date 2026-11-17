@@ -168,3 +168,30 @@ def test_stuck_popup_does_not_loop(page, client):
     page.set_content("""
     <div role="dialog"><p>Окно не закрывается</p><button>Понятно</button></div>""")
     assert client.handle_popups(page) == 1
+
+
+def test_salary_number_field_gets_lower_bound(page, client):
+    client.cfg.salary_expectation = "230000"
+    client.cfg.salary_max = "250000"
+    page.set_content(RESULT_JS + """
+    <div id="d" role="dialog">
+      <h2>Зарплатные ожидания</h2>
+      <input type="number" aria-label="Сумма, руб.">
+      <button onclick="done('d', document.querySelector('input').value)">Отправить</button>
+    </div>""")
+    assert client.handle_popups(page) == 1
+    assert page.evaluate("window.result.d") == "230000"
+
+
+def test_new_hh_response_form_is_not_touched(page, client):
+    """Лог 17.11: «Всплывающее окно: «Откликнуться». В окне не нашлось кнопки»."""
+    page.set_content("""
+    <div role="dialog">
+      <h2>Откликнуться</h2>
+      <label><input type="radio" name="r" checked>Senior Backend Developer (PHP Laravel) 230 000 ₽</label>
+      <label><input type="radio" name="r">Fullstack Developer (Flutter PHP Laravel) 250 000 ₽</label>
+      <textarea id="t"></textarea>
+    </div>""")
+    assert client.handle_popups(page) == 0
+    assert page.locator("#t").input_value() == ""
+    assert client.asked == []

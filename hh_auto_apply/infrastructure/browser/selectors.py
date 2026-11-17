@@ -83,7 +83,13 @@ class Selectors:
         '[data-qa="resume-select"]',
         '[data-qa="resume-select_item"]',
         '[data-qa="task-body"]',
+        # 17.11.2026: новая вёрстка hh: карточки резюме без data-qa="resume-select".
+        '[data-qa*="vacancy-response"]',
+        '[data-qa*="resume"]',
+        'textarea[name="letter"]',
     ]
+    # Окно с таким заголовком или текстом считаем формой отклика.
+    RESPONSE_FORM_TEXTS = ["сопроводительн", "резюме для отклика"]
     # Порядок важен: сначала самые «согласительные» кнопки.
     POPUP_CONFIRM_TEXTS = [
         "Все равно откликнуться",
