@@ -215,6 +215,12 @@ class HHClient:
             f"⚠️  КАПЧА! Введи текст с картинки в окне браузера и нажми «Отправить». "
             f"Бот на паузе и ждёт ({limit_txt})."
         )
+        # Снимок при первом появлении проверки помогает диагностировать
+        # проблемы без повторного запуска и не содержит решения капчи.
+        try:
+            self.make_shot(page, "captcha_detected")
+        except Exception as exc:
+            logger.debug(f"Не удалось сохранить скриншот капчи: {exc}")
         try:
             page.bring_to_front()
         except Exception:
