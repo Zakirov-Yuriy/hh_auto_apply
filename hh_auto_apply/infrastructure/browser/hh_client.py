@@ -24,6 +24,7 @@ from hh_auto_apply.infrastructure.ai.vacancy_api import (
     fetch_vacancy,
     format_for_prompt,
 )
+from hh_auto_apply.infrastructure.browser.popups import PopupHandler
 from hh_auto_apply.infrastructure.browser.selectors import Selectors
 from hh_auto_apply.infrastructure.utils import extract_vacancy_id, human_pause
 
@@ -233,6 +234,14 @@ class HHClient:
         logger.success(f"Капча введена (ждал {waited} с). Продолжаю отклик.")
         page.wait_for_timeout(1500)
         return True
+
+    def handle_popups(self, page: Page, vacancy_title: str = "") -> int:
+        """Проходит любые всплывшие окна (город, текст, подтверждения).
+
+        Капчу не вводит: на ней бот ждёт человека (wait_for_manual_captcha).
+        Форму отклика не трогает: её заполняет основной сценарий.
+        """
+        return PopupHandler(self).handle(page, vacancy_title)
 
     def make_shot(self, page: Page, tag: str) -> None:
         """Сохраняет скриншот вакансии в папку, соответствующую типу.
@@ -845,7 +854,8 @@ class HHClient:
         """После клика «Отправить»: ждём капчу (если вылезла) и проверяем отклик."""
         for _ in range(2):
             page.wait_for_timeout(1500)
-            self.wait_for_manual_captcha(page)
+            # После «Отправить» может всплыть окно (город, уточнение, капча).
+            self.handle_popups(page)
             if self.already_applied(page):
                 logger.success("Отклик отправлен ✅")
                 return True
@@ -894,7 +904,8 @@ class HHClient:
 
         for _ in range(3):
             # Пока висит капча, её «Отправить» нельзя путать с кнопкой отклика.
-            self.wait_for_manual_captcha(page)
+            # Заодно закрываем любые посторонние окна поверх формы.
+            self.handle_popups(page)
             btn = find_enabled_submit()
             if btn:
                 try:
@@ -1074,8 +1085,9 @@ class HHClient:
             for sel in title_selectors:
                 try:
                     elem = page.locator(sel).first
-                    if elem:
-                        text = (elem.inner_text() or "").strip()
+                    # Без count() inner_text ждал бы элемент 30 с на каждый селектор.
+                    if elem.count():
+                        text = (elem.inner_text(timeout=1000) or "").strip()
                         if text and len(text) > 5 and len(text) < 100:
                             context["title"] = text
                             break
@@ -1084,7 +1096,7 @@ class HHClient:
             
             # Ищем зарплату - получаем весь текст страницы и ищем паттерны
             try:
-                page_text = page.locator("body").inner_text()
+                page_text = page.locator("body").inner_text(timeout=2000)
                 if "130" in page_text and "₽" in page_text:
                     context["salary"] = "130000"
             except Exception:
@@ -1445,19 +1457,10 @@ class HHClient:
                     pass
                 page.wait_for_timeout(1500)
 
-                # --- Обработка модального окна "вакансия в другой стране" ---
-                foreign_modal_button = page.locator(Selectors.FOREIGN_COUNTRY_MODAL_BUTTON)
-                if self.is_visible(foreign_modal_button, timeout=2000):
-                    logger.info("Обнаружено модальное окно о вакансии в другой стране. Подтверждаю.")
-                    try:
-                        foreign_modal_button.click()
-                        page.wait_for_timeout(1500)
-                    except Exception as e:
-                        logger.warning(f"Не удалось нажать кнопку в модальном окне: {e}")
-
-                # Капча может вылезти уже на нажатии «Откликнуться».
-                self.wait_for_manual_captcha(page)
-            # --- Конец обработки модального окна ---
+                # Любые окна после «Откликнуться»: другая страна, выбор города,
+                # поле для текста, подтверждения. Капчу ждём от человека.
+                self.handle_popups(page, title)
+            # --- Конец обработки всплывающих окон ---
             
             # --- Обработка кастомных вопросов ---
             human_pause(self.cfg, 0.5, 1.0)

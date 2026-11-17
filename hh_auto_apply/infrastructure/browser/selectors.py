@@ -66,3 +66,51 @@ class Selectors:
         'text="Пройдите капчу"',
     ]
 
+
+    # --- Любые всплывающие окна (16.11.2026), см. popups.py ---
+    POPUP_CONTAINERS = [
+        '[role="dialog"]',
+        '[aria-modal="true"]',
+        '[data-qa*="modal"]',
+        '[data-qa*="popup"]',
+        '.bloko-modal',
+    ]
+    # Признаки формы самого отклика: её заполняет основной сценарий, не popups.py.
+    RESPONSE_FORM_MARKERS = [
+        '[data-qa="vacancy-response-submit-button"]',
+        '[data-qa="vacancy-response-letter-input"]',
+        '[data-qa="vacancy-response-letter-toggle"]',
+        '[data-qa="resume-select"]',
+        '[data-qa="resume-select_item"]',
+        '[data-qa="task-body"]',
+    ]
+    # Порядок важен: сначала самые «согласительные» кнопки.
+    POPUP_CONFIRM_TEXTS = [
+        "Все равно откликнуться",
+        "Всё равно откликнуться",
+        "Откликнуться",
+        "Отправить",
+        "Продолжить",
+        "Подтвердить",
+        "Сохранить",
+        "Применить",
+        "Выбрать",
+        "Готово",
+        "Да, верно",
+        "Да",
+        "Понятно",
+        "Хорошо",
+        "Принять",
+        "OK",
+        "Ок",
+    ]
+    # Эти кнопки бот не нажимает никогда.
+    POPUP_NEVER_CLICK = ["отмен", "закрыть", "удалить", "выйти", "не откликаться", "назад", "отказ"]
+    POPUP_CITY_WORDS = ["город", "регион", "city", "area", "местополож", "населённ", "населен"]
+    POPUP_SUGGEST_ITEMS = [
+        '[role="listbox"] [role="option"]',
+        '[data-qa*="suggest"] li',
+        '[data-qa*="suggest-item"]',
+        '[data-qa*="dropdown"] [role="option"]',
+        '.bloko-suggest__item',
+    ]

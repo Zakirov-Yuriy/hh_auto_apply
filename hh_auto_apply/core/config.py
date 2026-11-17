@@ -127,6 +127,8 @@ class Config:
     captcha_wait_minutes: float = 0.0
     # Как часто повторять звуковой сигнал, пока капча не решена (секунды).
     captcha_beep_every: float = 20.0
+    # Город для всплывающих окон «Выберите город» (16.11.2026).
+    hh_city: str = "Москва"
 
     @staticmethod
     def from_env() -> "Config":
@@ -200,4 +202,5 @@ class Config:
             stop_words=stop_words or [],
             captcha_wait_minutes=float(os.getenv("HH_CAPTCHA_WAIT_MINUTES", "0") or 0),
             captcha_beep_every=float(os.getenv("HH_CAPTCHA_BEEP_EVERY", "20") or 20),
+            hh_city=os.getenv("HH_CITY", "Москва").strip().strip('"').strip("'") or "Москва",
         )
